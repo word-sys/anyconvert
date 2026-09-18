@@ -511,6 +511,29 @@ def extract_page_layout(
     standalone_drawings = []
     
     for d in drawings:
+        is_decoration = False
+        if d.shape_type == "line" and d.bbox.width > max(d.bbox.height, 1.0) * 3:
+            mid_y = (d.bbox.y0 + d.bbox.y1) / 2.0
+            for b in page_model.blocks:
+                if isinstance(b, ParagraphBlock):
+                    for line in b.lines:
+                        for run in line.runs:
+                            # Check horizontal overlap (at least 20% of run width)
+                            h_overlap = max(0.0, min(run.bbox.x1, d.bbox.x1) - max(run.bbox.x0, d.bbox.x0))
+                            if h_overlap > run.bbox.width * 0.2 or h_overlap > 5.0:
+                                run_h = run.bbox.height
+                                if run_h > 0:
+                                    rel_y = (mid_y - run.bbox.y0) / run_h
+                                    if 0.75 <= rel_y <= 1.3:
+                                        run.is_underline = True
+                                        is_decoration = True
+                                    elif 0.35 <= rel_y < 0.75:
+                                        run.is_strikethrough = True
+                                        is_decoration = True
+                                        
+        if is_decoration:
+            continue
+            
         if d.fill_color and d.bbox.width > 10 and d.bbox.height > 10:
             is_bg = False
             for b in page_model.blocks:

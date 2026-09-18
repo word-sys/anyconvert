@@ -281,9 +281,12 @@ class DocxSynthesizer:
             r_pr.append("<w:i/>")
         if run.is_underline:
             r_pr.append('<w:u w:val="single"/>')
+        if run.is_strikethrough:
+            r_pr.append('<w:strike/>')
 
         sz_half_pts = int(round(run.font_size * 2))
         r_pr.append(f'<w:sz w:val="{sz_half_pts}"/>')
+        r_pr.append(f'<w:szCs w:val="{sz_half_pts}"/>')
 
         hex_color = run.color.to_hex().lstrip("#")
         if hex_color != "000000":

@@ -40,8 +40,9 @@ class OdtSynthesizer:
         is_bold = run.is_bold
         is_italic = run.is_italic
         is_underline = run.is_underline
+        is_strikethrough = run.is_strikethrough
 
-        key = (font_name, sz_pt, hex_col, is_bold, is_italic, is_underline)
+        key = (font_name, sz_pt, hex_col, is_bold, is_italic, is_underline, is_strikethrough)
         style_key = str(key)
         if style_key in self.style_map:
             return self.style_map[style_key]
@@ -60,6 +61,8 @@ class OdtSynthesizer:
             props.append('fo:font-style="italic"')
         if is_underline:
             props.append('style:text-underline-style="solid" style:text-underline-width="auto"')
+        if is_strikethrough:
+            props.append('style:text-line-through-style="solid"')
         if hex_col != "#000000":
             props.append(f'fo:color="{hex_col}"')
 

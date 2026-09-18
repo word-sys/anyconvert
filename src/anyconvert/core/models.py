@@ -103,6 +103,7 @@ class TextRun:
     is_bold: bool = False
     is_italic: bool = False
     is_underline: bool = False
+    is_strikethrough: bool = False
     color: Color = field(default_factory=Color)
     hyperlink_uri: Optional[str] = None
 
