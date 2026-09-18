@@ -16,6 +16,7 @@ from anyconvert.core.models import (
     ParagraphBlock,
     TableBlock,
     TextRun,
+    VectorShapeBlock,
 )
 from anyconvert.core.options import ConversionOptions
 
@@ -182,6 +183,7 @@ class DocxSynthesizer:
             '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
             'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
             'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '
+            'xmlns:wps="http://schemas.openxmlformats.org/wordprocessingml/2010/wordprocessingShape" '
             'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
             'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
         )
@@ -196,11 +198,16 @@ class DocxSynthesizer:
 
             for block in page.blocks:
                 if isinstance(block, ParagraphBlock):
-                    lines.append(self._render_paragraph(block))
+                    if self.options.mode == "precise":
+                        lines.append(self._render_paragraph_precise(block))
+                    else:
+                        lines.append(self._render_paragraph_flow(block))
                 elif isinstance(block, TableBlock):
                     lines.append(self._render_table(block))
                 elif isinstance(block, ImageBlock):
                     lines.append(self._render_image(block))
+                elif isinstance(block, VectorShapeBlock):
+                    lines.append(self._render_vector_shape(block))
 
             # Page break between pages (except after the final page)
             if p_idx < len(self.doc.pages) - 1:
@@ -218,7 +225,7 @@ class DocxSynthesizer:
         lines.append("</w:document>")
         return "\n".join(lines)
 
-    def _render_paragraph(self, block: ParagraphBlock) -> str:
+    def _render_paragraph_flow(self, block: ParagraphBlock) -> str:
         parts = ["    <w:p>"]
 
         # Paragraph properties
@@ -230,6 +237,10 @@ class DocxSynthesizer:
 
         if block.alignment != "left":
             p_pr.append(f'<w:jc w:val="{block.alignment}"/>')
+
+        if block.background_color and not self.options.mode == "precise":
+            hex_bg = block.background_color.to_hex().lstrip("#")
+            p_pr.append(f'<w:shd w:val="clear" w:color="auto" w:fill="{hex_bg}"/>')
 
         if p_pr:
             parts.append(f"      <w:pPr>{''.join(p_pr)}</w:pPr>")
@@ -389,6 +400,120 @@ class DocxSynthesizer:
               </a:graphicData>
             </a:graphic>
           </wp:inline>
+        </w:drawing>
+      </w:r>
+    </w:p>"""
+
+    def _render_paragraph_precise(self, block: ParagraphBlock) -> str:
+        x_emu = int(block.bbox.x0 * PT_TO_EMU)
+        y_emu = int(block.bbox.y0 * PT_TO_EMU)
+        cx_emu = int((block.bbox.width + 10) * PT_TO_EMU)
+        cy_emu = int((block.bbox.height + 10) * PT_TO_EMU)
+        shape_id = self.next_r_id
+        self.next_r_id += 1
+        
+        inner_p = self._render_paragraph_flow(block)
+        
+        bg_xml = ""
+        if block.background_color:
+            bg_xml = f'<a:solidFill><a:srgbClr val="{block.background_color.to_hex().lstrip("#")}"/></a:solidFill>'
+        else:
+            bg_xml = '<a:noFill/>'
+            
+        return f"""    <w:p>
+      <w:pPr>
+        <w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>
+      </w:pPr>
+      <w:r>
+        <w:drawing>
+          <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251658240" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">
+            <wp:simplePos x="0" y="0"/>
+            <wp:positionH relativeFrom="page">
+              <wp:posOffset>{x_emu}</wp:posOffset>
+            </wp:positionH>
+            <wp:positionV relativeFrom="page">
+              <wp:posOffset>{y_emu}</wp:posOffset>
+            </wp:positionV>
+            <wp:extent cx="{cx_emu}" cy="{cy_emu}"/>
+            <wp:docPr id="{shape_id}" name="Text Box {shape_id}"/>
+            <wp:cNvGraphicFramePr/>
+            <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingShape">
+                <wps:wsp xmlns:wps="http://schemas.openxmlformats.org/wordprocessingml/2010/wordprocessingShape">
+                  <wps:cNvSpPr txBox="1"/>
+                  <wps:spPr>
+                    <a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx_emu}" cy="{cy_emu}"/></a:xfrm>
+                    <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+                    {bg_xml}
+                    <a:ln><a:noFill/></a:ln>
+                  </wps:spPr>
+                  <wps:txbx>
+                    <w:txbxContent>
+                      {inner_p.strip()}
+                    </w:txbxContent>
+                  </wps:txbx>
+                </wps:wsp>
+              </a:graphicData>
+            </a:graphic>
+          </wp:anchor>
+        </w:drawing>
+      </w:r>
+    </w:p>"""
+
+    def _render_vector_shape(self, shape: VectorShapeBlock) -> str:
+        x_emu = int(shape.bbox.x0 * PT_TO_EMU)
+        y_emu = int(shape.bbox.y0 * PT_TO_EMU)
+        cx_emu = int(max(1.0, shape.bbox.width) * PT_TO_EMU)
+        cy_emu = int(max(1.0, shape.bbox.height) * PT_TO_EMU)
+        shape_id = self.next_r_id
+        self.next_r_id += 1
+
+        fill_xml = ""
+        if shape.fill_color:
+            fill_xml = f'<a:solidFill><a:srgbClr val="{shape.fill_color.to_hex().lstrip("#")}"/></a:solidFill>'
+        else:
+            fill_xml = '<a:noFill/>'
+            
+        stroke_xml = ""
+        if shape.stroke_color:
+            w_emu = int(max(0.25, shape.stroke_width) * PT_TO_EMU)
+            stroke_xml = f'<a:ln w="{w_emu}"><a:solidFill><a:srgbClr val="{shape.stroke_color.to_hex().lstrip("#")}"/></a:solidFill></a:ln>'
+        else:
+            stroke_xml = '<a:ln><a:noFill/></a:ln>'
+            
+        prst = "rect" if shape.shape_type == "rect" else "line"
+
+        return f"""    <w:p>
+      <w:pPr>
+        <w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>
+      </w:pPr>
+      <w:r>
+        <w:drawing>
+          <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251658240" behindDoc="1" locked="0" layoutInCell="1" allowOverlap="1">
+            <wp:simplePos x="0" y="0"/>
+            <wp:positionH relativeFrom="page">
+              <wp:posOffset>{x_emu}</wp:posOffset>
+            </wp:positionH>
+            <wp:positionV relativeFrom="page">
+              <wp:posOffset>{y_emu}</wp:posOffset>
+            </wp:positionV>
+            <wp:extent cx="{cx_emu}" cy="{cy_emu}"/>
+            <wp:docPr id="{shape_id}" name="Shape {shape_id}"/>
+            <wp:cNvGraphicFramePr/>
+            <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingShape">
+                <wps:wsp xmlns:wps="http://schemas.openxmlformats.org/wordprocessingml/2010/wordprocessingShape">
+                  <wps:cNvSpPr/>
+                  <wps:spPr>
+                    <a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx_emu}" cy="{cy_emu}"/></a:xfrm>
+                    <a:prstGeom prst="{prst}"><a:avLst/></a:prstGeom>
+                    {fill_xml}
+                    {stroke_xml}
+                  </wps:spPr>
+                </wps:wsp>
+              </a:graphicData>
+            </a:graphic>
+          </wp:anchor>
         </w:drawing>
       </w:r>
     </w:p>"""

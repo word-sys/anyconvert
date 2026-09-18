@@ -129,6 +129,7 @@ class ParagraphBlock:
     is_list_item: bool = False
     list_bullet: Optional[str] = None
     line_spacing: float = 1.15
+    background_color: Optional[Color] = None
 
     @property
     def text(self) -> str:

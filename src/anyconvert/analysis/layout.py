@@ -44,6 +44,52 @@ def parse_color_int(color_val: int, alpha: float = 1.0) -> Color:
     return Color(r, g, b, alpha)
 
 
+def parse_rgb_tuple(rgb: Optional[Tuple[float, float, float]], alpha: float = 1.0) -> Optional[Color]:
+    """Convert a PyMuPDF drawing color tuple (r, g, b float) to Color."""
+    if not rgb:
+        return None
+    r = int(max(0.0, min(1.0, rgb[0])) * 255)
+    g = int(max(0.0, min(1.0, rgb[1])) * 255)
+    b = int(max(0.0, min(1.0, rgb[2])) * 255)
+    return Color(r, g, b, alpha)
+
+
+def extract_page_drawings(page: pymupdf.Page) -> List[VectorShapeBlock]:
+    """Extract vector graphics from the PDF page."""
+    drawings: List[VectorShapeBlock] = []
+    try:
+        for p in page.get_drawings():
+            rect = p.get("rect")
+            if not rect:
+                continue
+            r = Rect(rect.x0, rect.y0, rect.x1, rect.y1)
+            
+            # Skip tiny artifacts
+            if r.width < 1.0 and r.height < 1.0:
+                continue
+                
+            fill = parse_rgb_tuple(p.get("fill"), p.get("fill_opacity", 1.0))
+            stroke = parse_rgb_tuple(p.get("color"), p.get("color_opacity", 1.0))
+            width = p.get("width", 1.0)
+            
+            shape_type = "rect"
+            if r.width <= 2.0 or r.height <= 2.0:
+                shape_type = "line"
+                
+            drawings.append(
+                VectorShapeBlock(
+                    bbox=r,
+                    shape_type=shape_type,
+                    stroke_color=stroke,
+                    fill_color=fill,
+                    stroke_width=width,
+                )
+            )
+    except Exception:
+        pass
+    return drawings
+
+
 def is_span_bold(span: dict) -> bool:
     """Determine if a text span is bold from flags or font name."""
     flags = span.get("flags", 0)
@@ -460,6 +506,30 @@ def extract_page_layout(
     if options.extract_images:
         images = extract_page_images(doc, page)
         page_model.blocks.extend(images)
+
+    drawings = extract_page_drawings(page)
+    standalone_drawings = []
+    
+    for d in drawings:
+        if d.fill_color and d.bbox.width > 10 and d.bbox.height > 10:
+            is_bg = False
+            for b in page_model.blocks:
+                if isinstance(b, ParagraphBlock):
+                    # Check if drawing mostly overlaps the paragraph
+                    h_overlap = max(0.0, min(d.bbox.x1, b.bbox.x1) - max(d.bbox.x0, b.bbox.x0))
+                    v_overlap = max(0.0, min(d.bbox.y1, b.bbox.y1) - max(d.bbox.y0, b.bbox.y0))
+                    overlap_area = h_overlap * v_overlap
+                    
+                    if b.bbox.area > 0 and (overlap_area / b.bbox.area) > 0.8:
+                        b.background_color = d.fill_color
+                        is_bg = True
+            
+            if not is_bg:
+                standalone_drawings.append(d)
+        else:
+            standalone_drawings.append(d)
+            
+    page_model.blocks.extend(standalone_drawings)
 
     page_model.blocks = sort_page_blocks(page_model.blocks, columns=columns)
 

@@ -16,6 +16,8 @@ from anyconvert.core.models import (
     ParagraphBlock,
     TableBlock,
     TextRun,
+    VectorShapeBlock,
+    Color,
 )
 from anyconvert.core.options import ConversionOptions
 
@@ -64,6 +66,60 @@ class OdtSynthesizer:
         style_xml = (
             f'    <style:style style:name="{style_name}" style:family="text">\n'
             f'      <style:text-properties {" ".join(props)}/>\n'
+            f"    </style:style>"
+        )
+        self.automatic_styles.append(style_xml)
+        return style_name
+
+    def _get_or_create_shape_style(self, fill_color: Optional[Color], stroke_color: Optional[Color], stroke_width: float) -> str:
+        key = (
+            fill_color.to_hex() if fill_color else None,
+            stroke_color.to_hex() if stroke_color else None,
+            stroke_width
+        )
+        style_key = str(key)
+        if style_key in self.style_map:
+            return self.style_map[style_key]
+
+        style_name = f"S{self.next_style_id}"
+        self.next_style_id += 1
+        self.style_map[style_key] = style_name
+
+        props = []
+        if fill_color:
+            props.append(f'draw:fill="solid" draw:fill-color="{fill_color.to_hex()}"')
+        else:
+            props.append('draw:fill="none"')
+
+        if stroke_color:
+            props.append(f'draw:stroke="solid" svg:stroke-color="{stroke_color.to_hex()}" svg:stroke-width="{stroke_width}pt"')
+        else:
+            props.append('draw:stroke="none"')
+
+        style_xml = (
+            f'    <style:style style:name="{style_name}" style:family="graphic">\n'
+            f'      <style:graphic-properties {" ".join(props)}/>\n'
+            f"    </style:style>"
+        )
+        self.automatic_styles.append(style_xml)
+        return style_name
+
+    def _get_or_create_paragraph_style(self, block: ParagraphBlock) -> str:
+        if not block.background_color:
+            return "List" if block.is_list_item else "Standard"
+
+        key = f"ParaBg_{block.background_color.to_hex()}"
+        if key in self.style_map:
+            return self.style_map[key]
+
+        style_name = f"P{self.next_style_id}"
+        self.next_style_id += 1
+        self.style_map[key] = style_name
+
+        parent_style = "List" if block.is_list_item else "Standard"
+        style_xml = (
+            f'    <style:style style:name="{style_name}" style:family="paragraph" style:parent-style-name="{parent_style}">\n'
+            f'      <style:paragraph-properties fo:background-color="{block.background_color.to_hex()}"/>\n'
             f"    </style:style>"
         )
         self.automatic_styles.append(style_xml)
@@ -196,18 +252,23 @@ class OdtSynthesizer:
         for p_idx, page in enumerate(self.doc.pages):
             for block in page.blocks:
                 if isinstance(block, ParagraphBlock):
-                    lines.append(self._render_paragraph(block))
+                    if self.options.mode == "precise":
+                        lines.append(self._render_paragraph_precise(block))
+                    else:
+                        lines.append(self._render_paragraph_flow(block))
                 elif isinstance(block, TableBlock):
                     lines.append(self._render_table(block))
                 elif isinstance(block, ImageBlock):
                     lines.append(self._render_image(block))
+                elif isinstance(block, VectorShapeBlock):
+                    lines.append(self._render_vector_shape(block))
 
             if p_idx < len(self.doc.pages) - 1:
                 lines.append('      <text:p text:style-name="PageBreak"/>')
 
         return "\n".join(lines)
 
-    def _render_paragraph(self, block: ParagraphBlock) -> str:
+    def _render_paragraph_flow(self, block: ParagraphBlock) -> str:
         if block.heading_level and 1 <= block.heading_level <= 4:
             runs_xml = []
             for l_idx, line in enumerate(block.lines):
@@ -227,7 +288,7 @@ class OdtSynthesizer:
             text_content = "".join(runs_xml)
             return f'      <text:h text:outline-level="{block.heading_level}" text:style-name="Heading_20_{block.heading_level}">{text_content}</text:h>'
 
-        style_name = "List" if block.is_list_item else "Standard"
+        style_name = self._get_or_create_paragraph_style(block)
         runs_xml = []
         if block.is_list_item:
             bullet = block.list_bullet or "•"
@@ -304,4 +365,46 @@ class OdtSynthesizer:
             f'svg:width="{w_pt:.2f}pt" svg:height="{h_pt:.2f}pt">\n'
             f'        <draw:image xlink:href="{path_in_zip}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>\n'
             f"      </draw:frame></text:p>"
+        )
+
+    def _render_paragraph_precise(self, block: ParagraphBlock) -> str:
+        x_pt = block.bbox.x0
+        y_pt = block.bbox.y0
+        w_pt = max(1.0, block.bbox.width + 10)
+        h_pt = max(1.0, block.bbox.height + 10)
+        
+        inner_p = self._render_paragraph_flow(block)
+        
+        shape_style = self._get_or_create_shape_style(block.background_color, None, 0.0)
+
+        return (
+            f'      <text:p><draw:frame text:anchor-type="page" '
+            f'svg:x="{x_pt:.2f}pt" svg:y="{y_pt:.2f}pt" svg:width="{w_pt:.2f}pt" svg:height="{h_pt:.2f}pt">\n'
+            f'        <draw:text-box draw:style-name="{shape_style}">\n'
+            f'    {inner_p}\n'
+            f'        </draw:text-box>\n'
+            f'      </draw:frame></text:p>'
+        )
+
+    def _render_vector_shape(self, shape: VectorShapeBlock) -> str:
+        x_pt = shape.bbox.x0
+        y_pt = shape.bbox.y0
+        w_pt = max(1.0, shape.bbox.width)
+        h_pt = max(1.0, shape.bbox.height)
+        
+        style_name = self._get_or_create_shape_style(shape.fill_color, shape.stroke_color, shape.stroke_width)
+        
+        tag = "draw:rect" if shape.shape_type == "rect" else "draw:line"
+        
+        if tag == "draw:line":
+            return (
+                f'      <text:p><draw:line text:anchor-type="page" '
+                f'svg:x1="{x_pt:.2f}pt" svg:y1="{y_pt:.2f}pt" svg:x2="{x_pt + w_pt:.2f}pt" svg:y2="{y_pt + h_pt:.2f}pt" '
+                f'draw:style-name="{style_name}"/></text:p>'
+            )
+            
+        return (
+            f'      <text:p><draw:rect text:anchor-type="page" '
+            f'svg:x="{x_pt:.2f}pt" svg:y="{y_pt:.2f}pt" svg:width="{w_pt:.2f}pt" svg:height="{h_pt:.2f}pt" '
+            f'draw:style-name="{style_name}"/></text:p>'
         )
