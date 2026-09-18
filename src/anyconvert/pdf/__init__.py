@@ -11,6 +11,14 @@ from anyconvert.pdf.parser import (
     PDFString,
     Parser,
 )
+from anyconvert.pdf.xref import (
+    ObjectStreamUnpacker,
+    XRefEntry,
+    XRefParser,
+    XRefResolver,
+    XRefTable,
+    XRefType,
+)
 
 __all__ = [
     "TokenType",
@@ -22,4 +30,11 @@ __all__ = [
     "PDFStream",
     "PDFIndirectObject",
     "Parser",
+    "XRefType",
+    "XRefEntry",
+    "XRefTable",
+    "XRefParser",
+    "ObjectStreamUnpacker",
+    "XRefResolver",
 ]
+
