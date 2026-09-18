@@ -234,7 +234,19 @@ class DocxSynthesizer:
         if p_pr:
             parts.append(f"      <w:pPr>{''.join(p_pr)}</w:pPr>")
 
-        for line in block.lines:
+        for l_idx, line in enumerate(block.lines):
+            if l_idx > 0:
+                prev_line = block.lines[l_idx - 1]
+                prev_text = prev_line.text
+                curr_text = line.text
+                if (
+                    prev_text
+                    and curr_text
+                    and not prev_text.endswith((" ", "\t", "\n", "\r", "-", "—", "–"))
+                    and not curr_text.startswith((" ", "\t", "\n", "\r"))
+                ):
+                    parts.append('<w:r><w:t xml:space="preserve"> </w:t></w:r>')
+
             for run in line.runs:
                 parts.append(self._render_run(run))
 

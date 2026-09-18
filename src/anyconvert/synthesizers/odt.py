@@ -209,7 +209,22 @@ class OdtSynthesizer:
 
     def _render_paragraph(self, block: ParagraphBlock) -> str:
         if block.heading_level and 1 <= block.heading_level <= 4:
-            text_content = "".join(self._render_run(run) for line in block.lines for run in line.runs)
+            runs_xml = []
+            for l_idx, line in enumerate(block.lines):
+                if l_idx > 0:
+                    prev_line = block.lines[l_idx - 1]
+                    prev_text = prev_line.text
+                    curr_text = line.text
+                    if (
+                        prev_text
+                        and curr_text
+                        and not prev_text.endswith((" ", "\t", "\n", "\r", "-", "—", "–"))
+                        and not curr_text.startswith((" ", "\t", "\n", "\r"))
+                    ):
+                        runs_xml.append("<text:s/>")
+                for run in line.runs:
+                    runs_xml.append(self._render_run(run))
+            text_content = "".join(runs_xml)
             return f'      <text:h text:outline-level="{block.heading_level}" text:style-name="Heading_20_{block.heading_level}">{text_content}</text:h>'
 
         style_name = "List" if block.is_list_item else "Standard"
@@ -218,7 +233,19 @@ class OdtSynthesizer:
             bullet = block.list_bullet or "•"
             runs_xml.append(f'<text:span>{xml_escape(bullet)} </text:span>')
 
-        for line in block.lines:
+        for l_idx, line in enumerate(block.lines):
+            if l_idx > 0:
+                prev_line = block.lines[l_idx - 1]
+                prev_text = prev_line.text
+                curr_text = line.text
+                if (
+                    prev_text
+                    and curr_text
+                    and not prev_text.endswith((" ", "\t", "\n", "\r", "-", "—", "–"))
+                    and not curr_text.startswith((" ", "\t", "\n", "\r"))
+                ):
+                    runs_xml.append("<text:s/>")
+
             for run in line.runs:
                 runs_xml.append(self._render_run(run))
 

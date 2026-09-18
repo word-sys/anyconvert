@@ -148,6 +148,26 @@ def compute_body_font_size(doc: pymupdf.Document) -> float:
     return 11.0
 
 
+def compute_page_body_font_size(page_dict: dict, fallback: float = 11.0) -> float:
+    """Find the most prevalent font size on a single page, falling back to document size."""
+    font_sizes: Counter[float] = Counter()
+    for block in page_dict.get("blocks", []):
+        if block.get("type") == 0:
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    text = span.get("text", "").strip()
+                    if text:
+                        size = round(span.get("size", fallback), 1)
+                        font_sizes[size] += len(text)
+
+    if font_sizes:
+        total_len = sum(font_sizes.values())
+        most_common_size, count = font_sizes.most_common(1)[0]
+        if total_len >= 60 and count >= total_len * 0.25:
+            return most_common_size
+    return fallback
+
+
 def extract_page_links(page: pymupdf.Page) -> List[Hyperlink]:
     """Extract all active clickable links on the page."""
     links: List[Hyperlink] = []
@@ -173,6 +193,162 @@ def find_link_for_bbox(links: List[Hyperlink], bbox: Rect) -> Optional[str]:
     return None
 
 
+def _build_paragraph(
+    para_lines: List[TextLine],
+    options: ConversionOptions,
+    body_font_size: float,
+) -> Optional[ParagraphBlock]:
+    """Construct a ParagraphBlock from lines with heading and list detection."""
+    if not para_lines:
+        return None
+
+    p_bbox = para_lines[0].bbox
+    for l in para_lines[1:]:
+        p_bbox = p_bbox.union(l.bbox)
+
+    para = ParagraphBlock(lines=para_lines, bbox=p_bbox)
+    para_text = para.text.strip()
+    if not para_text:
+        return None
+
+    first_run = para_lines[0].runs[0]
+    font_size = first_run.font_size
+    is_bold = first_run.is_bold
+
+    if options.detect_headings:
+        is_candidate_heading = (
+            len(para_lines) <= 2
+            and len(para_text) <= 120
+            and not para_text.endswith((",", ";", ":", "-", "...", "and", "or", "the", "to", "of", "in"))
+        )
+        if is_candidate_heading:
+            if font_size >= body_font_size * 1.75:
+                para.heading_level = 1
+            elif font_size >= body_font_size * 1.35:
+                para.heading_level = 2
+            elif font_size >= body_font_size * 1.18 and (is_bold or font_size > body_font_size * 1.25):
+                para.heading_level = 3
+            elif font_size >= body_font_size * 1.12 and is_bold:
+                para.heading_level = 4
+
+    bullet_match = BULLET_PATTERN.match(para_text)
+    if bullet_match:
+        para.is_list_item = True
+        para.list_bullet = bullet_match.group(1)
+    else:
+        numbered_match = NUMBERED_LIST_PATTERN.match(para_text)
+        if numbered_match:
+            para.is_list_item = True
+            para.list_bullet = numbered_match.group(1)
+
+    return para
+
+
+def _sort_single_column_blocks(blocks: List[Block]) -> List[Block]:
+    """Sort blocks within a column or page using horizontal band grouping."""
+    if len(blocks) <= 1:
+        return blocks
+
+    sorted_by_y = sorted(blocks, key=lambda b: b.bbox.y0)
+    bands: List[List[Block]] = []
+
+    for block in sorted_by_y:
+        placed = False
+        r = block.bbox
+
+        for band in bands:
+            has_overlap = False
+            for b in band:
+                b_r = b.bbox
+                v_overlap = max(0.0, min(r.y1, b_r.y1) - max(r.y0, b_r.y0))
+                min_h = min(r.height, b_r.height)
+                h_overlap = max(0.0, min(r.x1, b_r.x1) - max(r.x0, b_r.x0))
+                min_w = min(r.width, b_r.width)
+
+                if min_h > 0 and (v_overlap / min_h > 0.35 or abs(r.y0 - b_r.y0) < 16.0):
+                    if min_w == 0 or (h_overlap / min_w < 0.5):
+                        has_overlap = True
+                        break
+
+            if has_overlap:
+                band.append(block)
+                placed = True
+                break
+
+        if not placed:
+            bands.append([block])
+
+    bands.sort(key=lambda band: min(b.bbox.y0 for b in band))
+
+    result: List[Block] = []
+    for band in bands:
+        band.sort(key=lambda b: b.bbox.x0)
+        result.extend(band)
+
+    return result
+
+
+def sort_page_blocks(
+    blocks: List[Block],
+    columns: Optional[List[Tuple[float, float]]] = None,
+) -> List[Block]:
+    """Sort page blocks in logical reading order respecting columns and horizontal bands."""
+    if len(blocks) <= 1:
+        return blocks
+
+    if not columns or len(columns) <= 1:
+        return _sort_single_column_blocks(blocks)
+
+    col_width = columns[0][1] - columns[0][0]
+    full_width_blocks: List[Block] = []
+    col_blocks: Dict[int, List[Block]] = {i: [] for i in range(len(columns))}
+
+    for b in blocks:
+        w = b.bbox.width
+        if w > col_width * 1.3:
+            full_width_blocks.append(b)
+        else:
+            center_x = (b.bbox.x0 + b.bbox.x1) / 2.0
+            col_idx = 0
+            for i, (c_start, c_end) in enumerate(columns):
+                if c_start <= center_x <= c_end:
+                    col_idx = i
+                    break
+            col_blocks[col_idx].append(b)
+
+    if not full_width_blocks:
+        ordered: List[Block] = []
+        for i in sorted(col_blocks.keys()):
+            ordered.extend(_sort_single_column_blocks(col_blocks[i]))
+        return ordered
+
+    all_sorted: List[Block] = []
+    full_width_sorted = sorted(full_width_blocks, key=lambda b: b.bbox.y0)
+
+    for i in col_blocks:
+        col_blocks[i] = _sort_single_column_blocks(col_blocks[i])
+
+    current_col_pointers = {i: 0 for i in col_blocks}
+    for fw in full_width_sorted:
+        fw_y = fw.bbox.y0
+        for i in sorted(col_blocks.keys()):
+            while current_col_pointers[i] < len(col_blocks[i]):
+                cb = col_blocks[i][current_col_pointers[i]]
+                if cb.bbox.y0 < fw_y:
+                    all_sorted.append(cb)
+                    current_col_pointers[i] += 1
+                else:
+                    break
+        all_sorted.append(fw)
+
+    for i in sorted(col_blocks.keys()):
+        while current_col_pointers[i] < len(col_blocks[i]):
+            all_sorted.append(col_blocks[i][current_col_pointers[i]])
+            current_col_pointers[i] += 1
+
+    return all_sorted
+
+
 def extract_page_layout(
     doc: pymupdf.Document,
     page: pymupdf.Page,
@@ -194,6 +370,7 @@ def extract_page_layout(
     page_model.links = links
 
     page_dict = page.get_text("dict")
+    page_body_size = compute_page_body_font_size(page_dict, fallback=body_font_size)
     raw_blocks = page_dict.get("blocks", [])
 
     columns = detect_columns(raw_blocks, page_rect.width)
@@ -205,9 +382,10 @@ def extract_page_layout(
         if b_type == 0:  # Text block
             b_rect = raw_block.get("bbox", (0, 0, 0, 0))
             block_bbox = Rect(b_rect[0], b_rect[1], b_rect[2], b_rect[3])
-            lines: List[TextLine] = []
+            raw_lines = raw_block.get("lines", [])
+            extracted_lines: List[TextLine] = []
 
-            for raw_line in raw_block.get("lines", []):
+            for raw_line in raw_lines:
                 l_rect = raw_line.get("bbox", (0, 0, 0, 0))
                 line_bbox = Rect(l_rect[0], l_rect[1], l_rect[2], l_rect[3])
                 runs: List[TextRun] = []
@@ -219,7 +397,6 @@ def extract_page_layout(
 
                     s_rect = raw_span.get("bbox", (0, 0, 0, 0))
                     span_bbox = Rect(s_rect[0], s_rect[1], s_rect[2], s_rect[3])
-
                     uri = find_link_for_bbox(links, span_bbox)
 
                     run = TextRun(
@@ -235,7 +412,7 @@ def extract_page_layout(
                     runs.append(run)
 
                 if runs:
-                    lines.append(
+                    extracted_lines.append(
                         TextLine(
                             runs=runs,
                             bbox=line_bbox,
@@ -243,35 +420,36 @@ def extract_page_layout(
                         )
                     )
 
-            if lines:
-                para = ParagraphBlock(lines=lines, bbox=block_bbox)
+            # Split lines into distinct paragraphs by vertical gaps and blank lines
+            current_para_lines: List[TextLine] = []
+            for line in extracted_lines:
+                line_text = line.text.strip()
+                if not line_text:
+                    if current_para_lines:
+                        p = _build_paragraph(current_para_lines, options, page_body_size)
+                        if p:
+                            page_model.blocks.append(p)
+                        current_para_lines = []
+                    continue
 
-                if options.detect_headings:
-                    first_run = lines[0].runs[0]
-                    font_size = first_run.font_size
-                    is_bold = first_run.is_bold
+                if current_para_lines:
+                    prev_line = current_para_lines[-1]
+                    gap = line.bbox.y0 - prev_line.bbox.y1
+                    line_h = max(prev_line.bbox.height, 10.0)
 
-                    if font_size >= body_font_size * 1.8:
-                        para.heading_level = 1
-                    elif font_size >= body_font_size * 1.4:
-                        para.heading_level = 2
-                    elif font_size >= body_font_size * 1.2 or (is_bold and font_size > body_font_size * 1.05):
-                        para.heading_level = 3
-                    elif font_size >= body_font_size * 1.1:
-                        para.heading_level = 4
+                    if gap > max(line_h * 0.45, 6.0):
+                        p = _build_paragraph(current_para_lines, options, page_body_size)
+                        if p:
+                            page_model.blocks.append(p)
+                        current_para_lines = [line]
+                        continue
 
-                full_text = para.text
-                bullet_match = BULLET_PATTERN.match(full_text)
-                if bullet_match:
-                    para.is_list_item = True
-                    para.list_bullet = bullet_match.group(1)
-                else:
-                    numbered_match = NUMBERED_LIST_PATTERN.match(full_text)
-                    if numbered_match:
-                        para.is_list_item = True
-                        para.list_bullet = numbered_match.group(1)
+                current_para_lines.append(line)
 
-                page_model.blocks.append(para)
+            if current_para_lines:
+                p = _build_paragraph(current_para_lines, options, page_body_size)
+                if p:
+                    page_model.blocks.append(p)
 
     if options.detect_tables:
         tables = detect_page_tables(page, options)
@@ -283,7 +461,7 @@ def extract_page_layout(
         images = extract_page_images(doc, page)
         page_model.blocks.extend(images)
 
-    page_model.blocks.sort(key=lambda b: (b.bbox.y0, b.bbox.x0))
+    page_model.blocks = sort_page_blocks(page_model.blocks, columns=columns)
 
     return page_model
 
