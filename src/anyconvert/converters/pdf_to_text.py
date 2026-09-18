@@ -10,7 +10,7 @@ import pymupdf
 
 from anyconvert.analysis.layout import extract_document_layout
 from anyconvert.converters.base import BaseConverter
-from anyconvert.core.models import Document, ParagraphBlock, TextRun
+from anyconvert.core.models import Document, ParagraphBlock, TableBlock, TextRun
 from anyconvert.core.options import ConversionOptions, ConversionResult
 from anyconvert.core.registry import register_converter
 
@@ -59,6 +59,11 @@ class PdfToTextConverter(BaseConverter):
             for block in page.blocks:
                 if isinstance(block, ParagraphBlock):
                     lines.append(block.text)
+                    lines.append("")
+                elif isinstance(block, TableBlock):
+                    matrix = block.as_matrix()
+                    for row in matrix:
+                        lines.append("\t".join(c.replace("\n", " ").strip() for c in row))
                     lines.append("")
         return "\n".join(lines).strip() + "\n"
 
@@ -158,5 +163,14 @@ class PdfToMarkdownConverter(BaseConverter):
                         md_lines.append(f"- {content}")
                     else:
                         md_lines.append(f"{paragraph_text}\n")
+                elif isinstance(block, TableBlock):
+                    matrix = block.as_matrix()
+                    if matrix and len(matrix) >= 1:
+                        header = matrix[0]
+                        md_lines.append("| " + " | ".join(c.replace("\n", " ").strip() for c in header) + " |")
+                        md_lines.append("| " + " | ".join("---" for _ in header) + " |")
+                        for row in matrix[1:]:
+                            md_lines.append("| " + " | ".join(c.replace("\n", " ").strip() for c in row) + " |")
+                        md_lines.append("")
 
         return "\n".join(md_lines).strip() + "\n"

@@ -11,6 +11,7 @@ from pathlib import Path
 import pymupdf
 
 from anyconvert.analysis.images import extract_page_images
+from anyconvert.analysis.tables import detect_page_tables, filter_blocks_in_tables
 from anyconvert.core.models import (
     Block,
     Color,
@@ -272,9 +273,17 @@ def extract_page_layout(
 
                 page_model.blocks.append(para)
 
+    if options.detect_tables:
+        tables = detect_page_tables(page, options)
+        if tables:
+            page_model.blocks = filter_blocks_in_tables(page_model.blocks, tables)
+            page_model.blocks.extend(tables)
+
     if options.extract_images:
         images = extract_page_images(doc, page)
         page_model.blocks.extend(images)
+
+    page_model.blocks.sort(key=lambda b: (b.bbox.y0, b.bbox.x0))
 
     return page_model
 
