@@ -11,6 +11,7 @@ from anyconvert.converters.pdf_to_images import (
     PdfToTiffConverter,
     PdfToWebpConverter,
 )
+from anyconvert.converters.pdf_to_odt import PdfToOdtConverter
 from anyconvert.converters.pdf_to_text import (
     PdfToMarkdownConverter,
     PdfToTextConverter,
@@ -19,6 +20,7 @@ from anyconvert.converters.pdf_to_text import (
 __all__ = [
     "BaseConverter",
     "PdfToDocxConverter",
+    "PdfToOdtConverter",
     "PdfToTextConverter",
     "PdfToMarkdownConverter",
     "PdfToPngConverter",
