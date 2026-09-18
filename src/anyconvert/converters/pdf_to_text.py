@@ -104,7 +104,6 @@ class PdfToMarkdownConverter(BaseConverter):
         if not text.strip():
             return text
 
-        # Strip leading and trailing whitespace while preserving them outside markdown formatting
         l_ws = len(text) - len(text.lstrip())
         r_ws = len(text) - len(text.rstrip())
         leading = text[:l_ws]
@@ -114,7 +113,6 @@ class PdfToMarkdownConverter(BaseConverter):
         if not core:
             return text
 
-        # Apply bold and italic
         if run.is_bold and run.is_italic:
             formatted = f"***{core}***"
         elif run.is_bold:
@@ -124,7 +122,6 @@ class PdfToMarkdownConverter(BaseConverter):
         else:
             formatted = core
 
-        # Apply hyperlink
         if run.hyperlink_uri:
             formatted = f"[{formatted}]({run.hyperlink_uri})"
 
@@ -135,11 +132,10 @@ class PdfToMarkdownConverter(BaseConverter):
 
         for i, page in enumerate(doc.pages):
             if i > 0:
-                md_lines.append(f"\n---\n")
+                md_lines.append("\n---\n")
 
             for block in page.blocks:
                 if isinstance(block, ParagraphBlock):
-                    # Build styled line content
                     formatted_line_parts = []
                     for line in block.lines:
                         line_str = "".join(self._format_run(run) for run in line.runs).strip()
@@ -150,16 +146,12 @@ class PdfToMarkdownConverter(BaseConverter):
                     if not paragraph_text:
                         continue
 
-                    # Heading formatting
                     if block.heading_level and block.heading_level in (1, 2, 3, 4, 5, 6):
                         prefix = "#" * block.heading_level
-                        # Remove existing bold/italic marks from top headings for cleaner markdown
                         clean_heading = paragraph_text.lstrip("#").strip()
                         md_lines.append(f"{prefix} {clean_heading}\n")
-                    # Bullet / list item formatting
                     elif block.is_list_item:
                         bullet = block.list_bullet or "-"
-                        # Clean leading bullet from text if already in text
                         content = paragraph_text
                         if content.startswith(bullet):
                             content = content[len(bullet) :].strip()

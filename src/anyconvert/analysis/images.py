@@ -35,23 +35,18 @@ def extract_rgba_image_bytes(doc: pymupdf.Document, xref: int) -> Optional[Tuple
 
         base_pix = pymupdf.Pixmap(doc, xref)
 
-        # 1. If soft mask (alpha transparency) is present, composite it
         if smask_xref and smask_xref > 0:
             try:
                 mask_pix = pymupdf.Pixmap(doc, smask_xref)
-                # Ensure base is RGB
                 if base_pix.n != 3:
                     base_pix = pymupdf.Pixmap(pymupdf.csRGB, base_pix)
-                # Ensure mask is Grayscale
                 if mask_pix.n != 1:
                     mask_pix = pymupdf.Pixmap(pymupdf.csGRAY, mask_pix)
 
                 if base_pix.width == mask_pix.width and base_pix.height == mask_pix.height:
                     rgba_pix = pymupdf.Pixmap(base_pix, mask_pix)
-                    png_bytes = rgba_pix.tobytes("png")
-                    return (png_bytes, "png", base_pix.width, base_pix.height)
+                    return (rgba_pix.tobytes("png"), "png", base_pix.width, base_pix.height)
                 else:
-                    # Dimensions differ, resize mask using Pillow
                     base_img = Image.open(io.BytesIO(base_pix.tobytes("png"))).convert("RGB")
                     mask_img = Image.open(io.BytesIO(mask_pix.tobytes("png"))).convert("L")
                     mask_img = mask_img.resize(base_img.size, Image.Resampling.LANCZOS)
@@ -63,18 +58,15 @@ def extract_rgba_image_bytes(doc: pymupdf.Document, xref: int) -> Optional[Tuple
             except Exception:
                 pass
 
-        # 2. If base pixmap itself has alpha channel
         if base_pix.alpha:
             if base_pix.n != 4:
                 base_pix = pymupdf.Pixmap(pymupdf.csRGB, base_pix)
             return (base_pix.tobytes("png"), "png", base_pix.width, base_pix.height)
 
-        # 3. If CMYK, convert to RGB PNG
         if base_pix.n >= 4:
             rgb_pix = pymupdf.Pixmap(pymupdf.csRGB, base_pix)
             return (rgb_pix.tobytes("png"), "png", base_pix.width, base_pix.height)
 
-        # 4. Standard native image (JPEG, PNG, etc.)
         raw_bytes = image_data["image"]
         ext = image_data.get("ext", "png").lower()
         width = image_data.get("width", base_pix.width)

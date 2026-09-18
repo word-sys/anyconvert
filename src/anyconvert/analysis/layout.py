@@ -192,15 +192,12 @@ def extract_page_layout(
     links = extract_page_links(page)
     page_model.links = links
 
-    # 1. Extract raw blocks from PyMuPDF dict
     page_dict = page.get_text("dict")
     raw_blocks = page_dict.get("blocks", [])
 
-    # 2. Detect column structure and sort blocks
     columns = detect_columns(raw_blocks, page_rect.width)
     sorted_blocks = sort_blocks_in_reading_order(raw_blocks, columns)
 
-    # 3. Process text blocks into paragraphs, headings, and lists
     for raw_block in sorted_blocks:
         b_type = raw_block.get("type", 0)
 
@@ -248,7 +245,6 @@ def extract_page_layout(
             if lines:
                 para = ParagraphBlock(lines=lines, bbox=block_bbox)
 
-                # Determine heading level
                 if options.detect_headings:
                     first_run = lines[0].runs[0]
                     font_size = first_run.font_size
@@ -263,7 +259,6 @@ def extract_page_layout(
                     elif font_size >= body_font_size * 1.1:
                         para.heading_level = 4
 
-                # Determine bullet / list item status
                 full_text = para.text
                 bullet_match = BULLET_PATTERN.match(full_text)
                 if bullet_match:
@@ -277,7 +272,6 @@ def extract_page_layout(
 
                 page_model.blocks.append(para)
 
-    # 4. Extract placed images if requested
     if options.extract_images:
         images = extract_page_images(doc, page)
         page_model.blocks.extend(images)

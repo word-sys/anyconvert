@@ -127,12 +127,12 @@ def handle_convert(args: argparse.Namespace) -> int:
         )
         if result.success:
             print(
-                f"✓ Success! Converted {result.page_count} page(s) in {result.elapsed_seconds:.2f}s "
+                f"Success: Converted {result.page_count} page(s) in {result.elapsed_seconds:.2f}s "
                 f"(Tables: {result.tables_count}, Images: {result.images_count})"
             )
             return 0
         else:
-            print(f"✗ Conversion failed.", file=sys.stderr)
+            print("Error: Conversion failed.", file=sys.stderr)
             for warning in result.warnings:
                 print(f"  Warning: {warning}", file=sys.stderr)
             return 1
@@ -154,7 +154,7 @@ def handle_batch(args: argparse.Namespace) -> int:
             workers=args.workers,
         )
         successful = sum(1 for r in results if r.success)
-        print(f"✓ Completed {successful}/{len(results)} file(s) successfully.")
+        print(f"Completed {successful}/{len(results)} file(s) successfully.")
         return 0 if successful == len(results) else 1
     except AnyConvertError as e:
         print(f"Batch Error: {e}", file=sys.stderr)
