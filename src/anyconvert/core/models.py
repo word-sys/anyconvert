@@ -219,6 +219,10 @@ class Page:
     rotation: int = 0  # 0, 90, 180, 270
     blocks: List[Block] = field(default_factory=list)
     links: List[Hyperlink] = field(default_factory=list)
+    margin_top: float = 72.0
+    margin_bottom: float = 72.0
+    margin_left: float = 72.0
+    margin_right: float = 72.0
     header_margin: float = 36.0
     footer_margin: float = 36.0
 

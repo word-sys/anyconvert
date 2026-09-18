@@ -556,6 +556,27 @@ def extract_page_layout(
 
     page_model.blocks = sort_page_blocks(page_model.blocks, columns=columns)
 
+    # Compute actual page margins from content bounding boxes
+    min_x, min_y, max_x, max_y = page_model.width, page_model.height, 0.0, 0.0
+    has_content = False
+    for b in page_model.blocks:
+        # Ignore full-page backgrounds when computing content margins
+        if isinstance(b, VectorShapeBlock) and b.fill_color:
+            if b.bbox.width > page_model.width * 0.8 and b.bbox.height > page_model.height * 0.8:
+                continue
+        min_x = min(min_x, b.bbox.x0)
+        min_y = min(min_y, b.bbox.y0)
+        max_x = max(max_x, b.bbox.x1)
+        max_y = max(max_y, b.bbox.y1)
+        has_content = True
+        
+    if has_content and max_x > min_x and max_y > min_y:
+        # Minimum margin is 18pt (0.25 inches) to prevent completely flush text
+        page_model.margin_left = max(18.0, min_x)
+        page_model.margin_top = max(18.0, min_y)
+        page_model.margin_right = max(18.0, page_model.width - max_x)
+        page_model.margin_bottom = max(18.0, page_model.height - max_y)
+
     return page_model
 
 

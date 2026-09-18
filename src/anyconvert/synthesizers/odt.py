@@ -196,7 +196,22 @@ class OdtSynthesizer:
 </office:document-meta>"""
 
     def _build_styles_xml(self) -> str:
-        return """<?xml version="1.0" encoding="UTF-8"?>
+        page_w_pt = 612.0
+        page_h_pt = 792.0
+        mar_t = 72.0
+        mar_b = 72.0
+        mar_l = 72.0
+        mar_r = 72.0
+        
+        if self.doc.pages:
+            page_w_pt = self.doc.pages[0].width
+            page_h_pt = self.doc.pages[0].height
+            mar_t = min(p.margin_top for p in self.doc.pages)
+            mar_b = min(p.margin_bottom for p in self.doc.pages)
+            mar_l = min(p.margin_left for p in self.doc.pages)
+            mar_r = min(p.margin_right for p in self.doc.pages)
+            
+        return f"""<?xml version="1.0" encoding="UTF-8"?>
 <office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" office:version="1.2">
   <office:styles>
     <style:style style:name="Standard" style:family="paragraph" style:class="text">
@@ -224,6 +239,14 @@ class OdtSynthesizer:
       <style:paragraph-properties fo:break-before="page"/>
     </style:style>
   </office:styles>
+  <office:automatic-styles>
+    <style:page-layout style:name="pm1">
+      <style:page-layout-properties fo:page-width="{page_w_pt:.2f}pt" fo:page-height="{page_h_pt:.2f}pt" fo:margin-top="{mar_t:.2f}pt" fo:margin-bottom="{mar_b:.2f}pt" fo:margin-left="{mar_l:.2f}pt" fo:margin-right="{mar_r:.2f}pt"/>
+    </style:page-layout>
+  </office:automatic-styles>
+  <office:master-styles>
+    <style:master-page style:name="Standard" style:page-layout-name="pm1"/>
+  </office:master-styles>
 </office:document-styles>"""
 
     def _build_content_xml(self, body_xml: str) -> str:

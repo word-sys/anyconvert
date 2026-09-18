@@ -191,6 +191,18 @@ class DocxSynthesizer:
 
         page_w_pt = 612.0
         page_h_pt = 792.0
+        mar_t = 72.0
+        mar_b = 72.0
+        mar_l = 72.0
+        mar_r = 72.0
+        
+        if self.doc.pages:
+            page_w_pt = self.doc.pages[0].width
+            page_h_pt = self.doc.pages[0].height
+            mar_t = min(p.margin_top for p in self.doc.pages)
+            mar_b = min(p.margin_bottom for p in self.doc.pages)
+            mar_l = min(p.margin_left for p in self.doc.pages)
+            mar_r = min(p.margin_right for p in self.doc.pages)
 
         for p_idx, page in enumerate(self.doc.pages):
             page_w_pt = page.width
@@ -216,9 +228,14 @@ class DocxSynthesizer:
         # Document section properties (page width, height, margins)
         page_w_dxa = int(page_w_pt * PT_TO_DXA)
         page_h_dxa = int(page_h_pt * PT_TO_DXA)
+        mt_dxa = int(mar_t * PT_TO_DXA)
+        mb_dxa = int(mar_b * PT_TO_DXA)
+        ml_dxa = int(mar_l * PT_TO_DXA)
+        mr_dxa = int(mar_r * PT_TO_DXA)
+        
         lines.append("    <w:sectPr>")
         lines.append(f'      <w:pgSz w:w="{page_w_dxa}" w:h="{page_h_dxa}"/>')
-        lines.append('      <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>')
+        lines.append(f'      <w:pgMar w:top="{mt_dxa}" w:right="{mr_dxa}" w:bottom="{mb_dxa}" w:left="{ml_dxa}"/>')
         lines.append("    </w:sectPr>")
 
         lines.append("  </w:body>")
