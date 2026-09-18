@@ -152,6 +152,15 @@ class TableCell:
     border_bottom: bool = True
     border_left: bool = True
     border_right: bool = True
+    border_top_color: Optional[Color] = None
+    border_top_width: float = 1.0
+    border_bottom_color: Optional[Color] = None
+    border_bottom_width: float = 1.0
+    border_left_color: Optional[Color] = None
+    border_left_width: float = 1.0
+    border_right_color: Optional[Color] = None
+    border_right_width: float = 1.0
+    is_header: bool = False
 
 
 @dataclass
@@ -161,6 +170,9 @@ class TableBlock:
     rows: int
     cols: int
     cells: List[TableCell] = field(default_factory=list)
+    col_widths: List[float] = field(default_factory=list)
+    row_heights: List[float] = field(default_factory=list)
+    has_explicit_grid: bool = True
 
     def get_cell(self, row: int, col: int) -> Optional[TableCell]:
         for cell in self.cells:

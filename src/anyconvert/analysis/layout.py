@@ -11,7 +11,11 @@ from pathlib import Path
 import pymupdf
 
 from anyconvert.analysis.images import extract_page_images
-from anyconvert.analysis.tables import detect_page_tables, filter_blocks_in_tables
+from anyconvert.analysis.tables import (
+    detect_page_tables,
+    filter_blocks_in_tables,
+    reconstruct_table_shading_and_borders,
+)
 from anyconvert.core.models import (
     Block,
     Color,
@@ -497,9 +501,11 @@ def extract_page_layout(
                 if p:
                     page_model.blocks.append(p)
 
+    drawings = extract_page_drawings(page)
     if options.detect_tables:
         tables = detect_page_tables(page, options)
         if tables:
+            drawings = reconstruct_table_shading_and_borders(tables, drawings)
             page_model.blocks = filter_blocks_in_tables(page_model.blocks, tables)
             page_model.blocks.extend(tables)
 
@@ -507,7 +513,6 @@ def extract_page_layout(
         images = extract_page_images(doc, page)
         page_model.blocks.extend(images)
 
-    drawings = extract_page_drawings(page)
     standalone_drawings = []
     
     for d in drawings:
