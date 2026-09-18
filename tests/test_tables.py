@@ -13,46 +13,7 @@ from anyconvert.core.models import ParagraphBlock, Rect, TableBlock
 from anyconvert.core.options import ConversionOptions
 
 
-@pytest.fixture
-def table_pdf(tmp_path: Path) -> Path:
-    """Create a synthetic PDF with a 3x3 bordered table and paragraph text."""
-    pdf_path = tmp_path / "table_doc.pdf"
-    doc = pymupdf.open()
-    page = doc.new_page(width=500, height=500)
 
-    # Preceding paragraph
-    page.insert_text((50, 40), "Product Inventory Table", fontsize=16)
-
-    # 3x3 grid coordinates
-    x_coords = [50, 150, 250, 350]
-    y_coords = [70, 100, 130, 160]
-
-    # Draw horizontal borders
-    for y in y_coords:
-        page.draw_line((x_coords[0], y), (x_coords[-1], y))
-
-    # Draw vertical borders
-    for x in x_coords:
-        page.draw_line((x, y_coords[0]), (x, y_coords[-1]))
-
-    # Insert cell texts
-    data = [
-        ["Item", "Qty", "Price"],
-        ["Widget", "5", "$10.00"],
-        ["Gadget", "2", "$25.00"],
-    ]
-    for r_idx, row in enumerate(data):
-        y_text = y_coords[r_idx] + 20
-        for c_idx, val in enumerate(row):
-            x_text = x_coords[c_idx] + 10
-            page.insert_text((x_text, y_text), val, fontsize=10)
-
-    # Trailing paragraph
-    page.insert_text((50, 200), "End of Inventory Report.", fontsize=11)
-
-    doc.save(str(pdf_path))
-    doc.close()
-    return pdf_path
 
 
 def test_detect_page_tables(table_pdf: Path):

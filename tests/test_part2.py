@@ -13,58 +13,7 @@ from anyconvert.analysis.layout import extract_document_layout
 from anyconvert.core.models import ImageBlock, ParagraphBlock
 
 
-@pytest.fixture
-def sample_pdf(tmp_path: Path) -> Path:
-    """Create a synthetic PDF fixture with headings, styled text, lists, links, and images."""
-    pdf_path = tmp_path / "sample_doc.pdf"
-    doc = pymupdf.open()
 
-    # --- Page 1 ---
-    page1 = doc.new_page(width=612, height=792)
-
-    # Title (Large Heading 1)
-    page1.insert_text((72, 72), "Annual Tech Report", fontsize=24, fontname="helv")
-
-    # Subtitle (Heading 2)
-    page1.insert_text((72, 110), "Executive Overview", fontsize=16, fontname="helv")
-
-    # Regular paragraph with bold text
-    page1.insert_text(
-        (72, 150),
-        "This is an introductory paragraph describing our next-generation conversion engine.",
-        fontsize=11,
-        fontname="helv",
-    )
-
-    # Bullet list items
-    page1.insert_text((72, 190), "• Lossless layout preservation", fontsize=11, fontname="helv")
-    page1.insert_text((72, 210), "• High-DPI image rasterization", fontsize=11, fontname="helv")
-    page1.insert_text((72, 230), "• Pure Python wheel distribution", fontsize=11, fontname="helv")
-
-    # Hyperlink
-    link_rect = pymupdf.Rect(72, 260, 250, 275)
-    page1.insert_text((72, 270), "Visit our Project Repository", fontsize=11, fontname="helv")
-    page1.insert_link({
-        "kind": pymupdf.LINK_URI,
-        "from": link_rect,
-        "uri": "https://github.com/word-sys/anyconvert",
-    })
-
-    # Insert a small test image (100x100 RGB image)
-    test_img = Image.new("RGBA", (100, 100), color=(255, 0, 0, 128))
-    img_buf = io.BytesIO()
-    test_img.save(img_buf, format="PNG")
-    img_bytes = img_buf.getvalue()
-    page1.insert_image(pymupdf.Rect(72, 300, 172, 400), stream=img_bytes)
-
-    # --- Page 2 ---
-    page2 = doc.new_page(width=612, height=792)
-    page2.insert_text((72, 72), "Architecture Details", fontsize=18, fontname="helv")
-    page2.insert_text((72, 110), "Page two contains extended structural specifications.", fontsize=11, fontname="helv")
-
-    doc.save(str(pdf_path))
-    doc.close()
-    return pdf_path
 
 
 def test_dla_layout_analysis(sample_pdf: Path):

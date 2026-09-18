@@ -3,6 +3,7 @@ Converters package for anyconvert.
 """
 
 from anyconvert.converters.base import BaseConverter
+from anyconvert.converters.pdf_to_docx import PdfToDocxConverter
 from anyconvert.converters.pdf_to_images import (
     PdfToJpegConverter,
     PdfToPngConverter,
@@ -17,6 +18,7 @@ from anyconvert.converters.pdf_to_text import (
 
 __all__ = [
     "BaseConverter",
+    "PdfToDocxConverter",
     "PdfToTextConverter",
     "PdfToMarkdownConverter",
     "PdfToPngConverter",
