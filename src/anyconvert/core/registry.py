@@ -1,12 +1,16 @@
+from __future__ import annotations
+
 """
 Converter registry and format resolution for anyconvert.
 """
 
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
 
-from anyconvert.converters.base import BaseConverter
 from anyconvert.core.exceptions import FormatDetectionError, UnsupportedFormatError
+
+if TYPE_CHECKING:
+    from anyconvert.converters.base import BaseConverter
 
 
 # Common format aliases

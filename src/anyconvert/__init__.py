@@ -51,6 +51,9 @@ from anyconvert.core.registry import (
     register_converter,
 )
 
+# Import converters to populate default_registry
+import anyconvert.converters  # noqa: F401
+
 __version__ = "0.1.0"
 __author__ = "Barın Güzeldemirci (word-sys)"
 __license__ = "GPL-3.0-or-later"
