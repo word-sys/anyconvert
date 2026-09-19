@@ -1,4 +1,4 @@
-"""Common primitives, geometry, color models, and utilities."""
+"""Common primitives, geometry, color models, and binary readers."""
 
 from __future__ import annotations
 
@@ -24,6 +24,12 @@ from anyconvert.common.logging import (
     configure_logging,
     get_logger,
 )
+from anyconvert.common.reader import (
+    PDF_DELIMITERS,
+    PDF_WHITESPACE,
+    BitReader,
+    ByteReader,
+)
 
 __all__ = [
     "Point",
@@ -42,4 +48,8 @@ __all__ = [
     "DARK_GRAY",
     "get_logger",
     "configure_logging",
+    "ByteReader",
+    "BitReader",
+    "PDF_WHITESPACE",
+    "PDF_DELIMITERS",
 ]
