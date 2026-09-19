@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from anyconvert.pdf.document import PDFDocument
 from anyconvert.pdf.lexer import PDFLexer, Token, TokenType
 from anyconvert.pdf.parser import (
     PDFArray,
@@ -15,6 +16,12 @@ from anyconvert.pdf.parser import (
     PDFParser,
     PDFStream,
     PDFString,
+)
+from anyconvert.pdf.xref import (
+    XRefEntry,
+    XRefResolver,
+    XRefTable,
+    reverse_png_predictor,
 )
 
 __all__ = [
@@ -32,4 +39,9 @@ __all__ = [
     "PDFIndirectRef",
     "PDFStream",
     "PDFIndirectObject",
+    "XRefEntry",
+    "XRefTable",
+    "XRefResolver",
+    "PDFDocument",
+    "reverse_png_predictor",
 ]
