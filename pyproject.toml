@@ -1,0 +1,61 @@
+[build-system]
+requires = ["flit_core >=3.8,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "anyconvert"
+version = "0.1.0"
+description = "Document conversion engine"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [
+    {name = "anyconvert contributors"}
+]
+keywords = [
+    "pdf",
+    "converter",
+    "docx",
+    "pptx",
+    "odt",
+    "odp",
+    "txt",
+    "zero-dependency",
+    "document-processing",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Text Processing :: General",
+    "Topic :: Utilities",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.scripts]
+anyconvert = "anyconvert.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/word-sys/anyconvert"
+Repository = "https://github.com/word-sys/anyconvert"
+Documentation = "https://github.com/word-sys/anyconvert#readme"
+"Bug Tracker" = "https://github.com/word-sys/anyconvert/issues"
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
