@@ -67,6 +67,7 @@ class ImageElement:
     name: str
     ctm: Matrix3x3
     bbox: BoundingBox
+    stream: Optional[PDFStream] = None
 
 
 @dataclass
@@ -719,6 +720,7 @@ class ContentInterpreter:
                     name=clean_name,
                     ctm=self._state_stack.current.ctm,
                     bbox=bbox,
+                    stream=xobj,
                 )
             )
         elif st_name == "Form":

@@ -59,9 +59,17 @@ class PDFString:
 
     value: bytes
 
+    def as_bytes(self) -> bytes:
+        """Return the raw byte content of the string."""
+        if isinstance(self.value, bytes):
+            return self.value
+        if isinstance(self.value, memoryview):
+            return bytes(self.value)
+        return str(self.value).encode("latin-1")
+
     def as_text(self) -> str:
         """Decode literal string to text handling BOM and PDFDocEncoding / UTF-16."""
-        val = self.value
+        val = self.as_bytes()
         if val.startswith(b"\xfe\xff"):
             return val[2:].decode("utf-16-be", errors="replace")
         elif val.startswith(b"\xff\xfe"):
@@ -80,9 +88,17 @@ class PDFHexString:
 
     value: bytes
 
+    def as_bytes(self) -> bytes:
+        """Return the decoded byte content of the hexadecimal string."""
+        if isinstance(self.value, bytes):
+            return self.value
+        if isinstance(self.value, memoryview):
+            return bytes(self.value)
+        return str(self.value).encode("latin-1")
+
     def as_text(self) -> str:
         """Decode hex string to text handling BOM and encodings."""
-        val = self.value
+        val = self.as_bytes()
         if val.startswith(b"\xfe\xff"):
             return val[2:].decode("utf-16-be", errors="replace")
         elif val.startswith(b"\xff\xfe"):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from anyconvert.pdf.graphics.image import PDFImage
 from anyconvert.pdf.graphics.path import (
     ClosePath,
     CurveTo,
@@ -28,4 +29,6 @@ __all__ = [
     "Rectangle",
     "ClosePath",
     "VectorPath",
+    "PDFImage",
 ]
+
