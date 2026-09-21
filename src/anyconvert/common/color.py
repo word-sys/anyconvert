@@ -76,6 +76,21 @@ class Color:
         return self.a >= 1.0
 
     @classmethod
+    def black(cls, a: float = 1.0) -> Color:
+        """Create an opaque black color."""
+        return cls(r=0, g=0, b=0, a=a)
+
+    @classmethod
+    def white(cls, a: float = 1.0) -> Color:
+        """Create an opaque white color."""
+        return cls(r=255, g=255, b=255, a=a)
+
+    @classmethod
+    def transparent(cls) -> Color:
+        """Create a fully transparent color."""
+        return cls(r=0, g=0, b=0, a=0.0)
+
+    @classmethod
     def from_rgb(cls, r: int, g: int, b: int, a: float = 1.0) -> Color:
         """Create a Color from integer RGB values (0-255)."""
         return cls(r=r, g=g, b=b, a=a)

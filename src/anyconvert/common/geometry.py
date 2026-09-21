@@ -250,6 +250,20 @@ class BoundingBox:
             y1=self.y1 + v_dy,
         )
 
+    def distance_to_point(self, point: Point) -> float:
+        """Compute the shortest Euclidean distance from this bounding box to a point.
+
+        Args:
+            point: Target point.
+
+        Returns:
+            float: 0.0 if the point is inside the box, otherwise Euclidean distance.
+        """
+        dx = max(0.0, self.x0 - point.x, point.x - self.x1)
+        dy = max(0.0, self.y0 - point.y, point.y - self.y1)
+        return math.hypot(dx, dy)
+
+
     def translate(self, dx: float, dy: float) -> BoundingBox:
         """Translate bounding box by (dx, dy).
 
