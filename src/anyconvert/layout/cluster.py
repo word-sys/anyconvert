@@ -284,40 +284,53 @@ def cluster_words_to_lines(
         # Sort words in line horizontally from left to right
         line_words.sort(key=lambda w: w.bbox.x0)
 
-        # Merge bounding box
-        x0 = min(w.bbox.x0 for w in line_words)
-        y0 = min(w.bbox.y0 for w in line_words)
-        x1 = max(w.bbox.x1 for w in line_words)
-        y1 = max(w.bbox.y1 for w in line_words)
-        line_bbox = BoundingBox(x0, y0, x1, y1)
+        # Split line if there is a significant horizontal gap between words
+        # (e.g. multi-column layout or separated blocks on same baseline)
+        split_groups: List[List[TextWord]] = [[line_words[0]]]
+        for w in line_words[1:]:
+            prev_w = split_groups[-1][-1]
+            gap = w.bbox.x0 - prev_w.bbox.x1
+            max_gap = max(24.0, 2.5 * max(w.font_size, prev_w.font_size))
+            if gap > max_gap:
+                split_groups.append([w])
+            else:
+                split_groups[-1].append(w)
 
-        avg_base = sum(w.baseline_y for w in line_words) / len(line_words)
-        line_text = " ".join(w.text for w in line_words)
+        for grp in split_groups:
+            # Merge bounding box
+            x0 = min(w.bbox.x0 for w in grp)
+            y0 = min(w.bbox.y0 for w in grp)
+            x1 = max(w.bbox.x1 for w in grp)
+            y1 = max(w.bbox.y1 for w in grp)
+            line_bbox = BoundingBox(x0, y0, x1, y1)
 
-        # Statistical dominant font attributes
-        font_counts: dict[str, int] = {}
-        for w in line_words:
-            font_counts[w.font_name] = font_counts.get(w.font_name, 0) + len(w.text)
-        dominant_font = max(font_counts.items(), key=lambda kv: kv[1])[0]
+            avg_base = sum(w.baseline_y for w in grp) / len(grp)
+            line_text = " ".join(w.text for w in grp)
 
-        dominant_size = sum(w.font_size * len(w.text) for w in line_words) / max(1, sum(len(w.text) for w in line_words))
-        dominant_color = line_words[0].color
-        has_bold = any(w.is_bold for w in line_words)
-        has_italic = any(w.is_italic for w in line_words)
+            # Statistical dominant font attributes
+            font_counts: dict[str, int] = {}
+            for w in grp:
+                font_counts[w.font_name] = font_counts.get(w.font_name, 0) + len(w.text)
+            dominant_font = max(font_counts.items(), key=lambda kv: kv[1])[0]
 
-        final_lines.append(
-            TextLine(
-                words=line_words,
-                bbox=line_bbox,
-                baseline_y=avg_base,
-                text=line_text,
-                font_name=dominant_font,
-                font_size=dominant_size,
-                color=dominant_color,
-                is_bold=has_bold,
-                is_italic=has_italic,
+            dominant_size = sum(w.font_size * len(w.text) for w in grp) / max(1, sum(len(w.text) for w in grp))
+            dominant_color = grp[0].color
+            has_bold = any(w.is_bold for w in grp)
+            has_italic = any(w.is_italic for w in grp)
+
+            final_lines.append(
+                TextLine(
+                    words=grp,
+                    bbox=line_bbox,
+                    baseline_y=avg_base,
+                    text=line_text,
+                    font_name=dominant_font,
+                    font_size=dominant_size,
+                    color=dominant_color,
+                    is_bold=has_bold,
+                    is_italic=has_italic,
+                )
             )
-        )
 
     # Sort final lines top-to-bottom (Y ascending in doc coordinates), then left-to-right
     final_lines.sort(key=lambda l: (round(l.bbox.y0, 1), l.bbox.x0))

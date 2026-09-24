@@ -7,7 +7,7 @@ typographic units adhering to PDF 32000-1 §9.2.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from anyconvert.common.geometry import BoundingBox
 
@@ -89,3 +89,54 @@ class BaseFont:
         if 0 <= char_code <= 255:
             return chr(char_code)
         return "\ufffd"
+
+
+def normalize_font_family_and_style(raw_name: str) -> Tuple[str, bool, bool]:
+    """Extract clean typographic family name, bold flag, and italic flag from font name.
+
+    Strips subset prefixes (e.g. 'BAAAAA+'), sub-family style modifiers ('-Bold', ' Italic'),
+    and detects bold / italic presence.
+    """
+    import re
+
+    if not raw_name:
+        return ("Calibri", False, False)
+    clean = re.sub(r"^[A-Za-z0-9]{6}\+", "", raw_name).strip().lstrip("/")
+
+    # Detect style keywords
+    is_bold = bool(
+        re.search(
+            r"\b(Bold|Black|Heavy|Semibold)\b|-(Bold|Black|Heavy)",
+            clean,
+            re.IGNORECASE,
+        )
+    )
+    is_italic = bool(
+        re.search(
+            r"\b(Italic|Oblique|Slanted)\b|-(Italic|Oblique)",
+            clean,
+            re.IGNORECASE,
+        )
+    )
+
+    # Clean family name
+    fam = re.sub(
+        r"-(Regular|Bold|Italic|Oblique|BoldItalic|BoldOblique|Book|Medium|MT|PS).*$",
+        "",
+        clean,
+        flags=re.IGNORECASE,
+    )
+    fam = re.sub(
+        r"\s+(Regular|Bold|Italic|Oblique|Bold\s+Italic|Bold\s+Oblique|Book|Medium)$",
+        "",
+        fam,
+        flags=re.IGNORECASE,
+    ).strip()
+    return (fam if fam else clean, is_bold, is_italic)
+
+
+__all__ = [
+    "FontMetrics",
+    "BaseFont",
+    "normalize_font_family_and_style",
+]

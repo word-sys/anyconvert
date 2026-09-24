@@ -24,7 +24,7 @@ from anyconvert.pdf.parser import PDFArray, PDFDict, PDFIndirectRef, PDFName, PD
 from anyconvert.pdf.typography.cmap import CMap
 from anyconvert.pdf.typography.composite import CompositeFont
 from anyconvert.pdf.typography.encodings import EncodingResolver
-from anyconvert.pdf.typography.font import BaseFont
+from anyconvert.pdf.typography.font import BaseFont, normalize_font_family_and_style
 from anyconvert.pdf.typography.sfnt import SFNTFont
 from anyconvert.pdf.typography.type1 import Type1Font
 from anyconvert.pdf.xref import XRefResolver
@@ -543,9 +543,10 @@ class ContentInterpreter:
         h_scale = self._text_state.horizontal_scaling / 100.0
         rise = self._text_state.rise
         color = self._state_stack.current.fill_color
-        is_bold = font.metrics.is_bold
-        is_italic = font.metrics.is_italic
-        font_name = font.name
+        clean_family, name_bold, name_italic = normalize_font_family_and_style(font.name)
+        is_bold = font.metrics.is_bold or name_bold
+        is_italic = font.metrics.is_italic or name_italic
+        font_name = clean_family
 
         asc = font.metrics.ascender if font.metrics.ascender != 0.0 else 800.0
         desc = font.metrics.descender if font.metrics.descender != 0.0 else -200.0

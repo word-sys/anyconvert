@@ -80,7 +80,7 @@ class OdtEmitter(BaseEmitter):
         pkg.add_part("content.xml", content_xml, media_type=MEDIA_TYPE_TEXT_XML)
 
         # 2. Build styles.xml (page layouts, header/footer)
-        styles_xml = self._build_styles_xml(first_page=first_page)
+        styles_xml = self._build_styles_xml(first_page=first_page, mode=mode)
         pkg.add_part("styles.xml", styles_xml, media_type=MEDIA_TYPE_TEXT_XML)
 
         # 3. Build meta.xml
@@ -104,14 +104,22 @@ class OdtEmitter(BaseEmitter):
         t_style_map: Dict[Tuple[str, float, str, bool, bool, bool, bool], str] = {}
         col_style_map: Dict[float, str] = {}
         cell_style_map: Dict[Tuple[Optional[str], str], str] = {}
+        used_fonts: Set[str] = set()
 
-        # Default graphic frame style
+        # Default graphic frame style (transparent background, no borders, no padding)
         auto_styles.append(
             '  <style:style style:name="Frame_Default" style:family="graphic">\n'
-            '    <style:graphic-properties style:wrap="none" style:vertical-pos="from-top" '
-            'style:horizontal-pos="from-left"/>\n'
+            '    <style:graphic-properties style:wrap="none" style:vertical-pos="from-top" style:vertical-rel="page" '
+            'style:horizontal-pos="from-left" style:horizontal-rel="page" draw:fill="none" draw:stroke="none" fo:padding="0pt" fo:margin="0pt"/>\n'
             '  </style:style>'
         )
+
+        if mode == ConversionMode.CANVAS:
+            auto_styles.append(
+                '  <style:style style:name="P_Canvas" style:family="paragraph">\n'
+                '    <style:paragraph-properties fo:margin="0pt" fo:padding="0pt" fo:line-height="0%" fo:font-size="0pt"/>\n'
+                '  </style:style>'
+            )
 
         image_counter = [1]
 
@@ -119,21 +127,50 @@ class OdtEmitter(BaseEmitter):
         for page_idx, page in enumerate(doc_ir.pages):
             page_num = page_idx + 1
 
-            for block in page.blocks:
-                b_xml = self._render_block(
-                    block=block,
-                    pkg=pkg,
-                    auto_styles=auto_styles,
-                    p_style_map=p_style_map,
-                    t_style_map=t_style_map,
-                    col_style_map=col_style_map,
-                    cell_style_map=cell_style_map,
-                    image_counter=image_counter,
-                    page_num=page_num,
-                    mode=mode,
+            if mode == ConversionMode.CANVAS:
+                page_draw_elements: List[str] = []
+                for block in page.blocks:
+                    b_xml = self._render_block(
+                        block=block,
+                        pkg=pkg,
+                        auto_styles=auto_styles,
+                        p_style_map=p_style_map,
+                        t_style_map=t_style_map,
+                        col_style_map=col_style_map,
+                        cell_style_map=cell_style_map,
+                        image_counter=image_counter,
+                        page_num=page_num,
+                        page_width=page.width,
+                        page_height=page.height,
+                        used_fonts=used_fonts,
+                        mode=mode,
+                    )
+                    if b_xml:
+                        page_draw_elements.append(b_xml)
+                body_elements.append(
+                    '      <text:p text:style-name="P_Canvas">\n'
+                    + "\n".join(page_draw_elements)
+                    + "\n      </text:p>"
                 )
-                if b_xml:
-                    body_elements.append(b_xml)
+            else:
+                for block in page.blocks:
+                    b_xml = self._render_block(
+                        block=block,
+                        pkg=pkg,
+                        auto_styles=auto_styles,
+                        p_style_map=p_style_map,
+                        t_style_map=t_style_map,
+                        col_style_map=col_style_map,
+                        cell_style_map=cell_style_map,
+                        image_counter=image_counter,
+                        page_num=page_num,
+                        page_width=page.width,
+                        page_height=page.height,
+                        used_fonts=used_fonts,
+                        mode=mode,
+                    )
+                    if b_xml:
+                        body_elements.append(b_xml)
 
             # Page break between pages (except last)
             if page_idx < total_pages - 1:
@@ -160,6 +197,13 @@ class OdtEmitter(BaseEmitter):
             '                         xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0"',
             '                         xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"',
             '                         office:version="1.3">',
+        ]
+        if used_fonts:
+            xml_lines.append('  <office:font-face-decls>')
+            for f in sorted(used_fonts):
+                xml_lines.append(f'    <style:font-face style:name="{xml_escape(f)}" svg:font-family="{xml_escape(f)}"/>')
+            xml_lines.append('  </office:font-face-decls>')
+        xml_lines.extend([
             '  <office:automatic-styles>',
             "\n".join(auto_styles),
             '  </office:automatic-styles>',
@@ -169,7 +213,7 @@ class OdtEmitter(BaseEmitter):
             '    </office:text>',
             '  </office:body>',
             '</office:document-content>',
-        ]
+        ])
         return "\n".join(xml_lines).encode("utf-8")
 
     def _render_block(
@@ -183,6 +227,9 @@ class OdtEmitter(BaseEmitter):
         cell_style_map: Dict[Tuple[Optional[str], str], str],
         image_counter: List[int],
         page_num: int,
+        page_width: float,
+        page_height: float,
+        used_fonts: Set[str],
         mode: ConversionMode,
     ) -> str:
         """Render a BlockNode to ODF XML string."""
@@ -192,6 +239,7 @@ class OdtEmitter(BaseEmitter):
                 auto_styles=auto_styles,
                 p_style_map=p_style_map,
                 t_style_map=t_style_map,
+                used_fonts=used_fonts,
                 page_num=page_num,
                 mode=mode,
             )
@@ -203,6 +251,7 @@ class OdtEmitter(BaseEmitter):
                 t_style_map=t_style_map,
                 col_style_map=col_style_map,
                 cell_style_map=cell_style_map,
+                used_fonts=used_fonts,
                 page_num=page_num,
             )
         elif isinstance(block, ImageBlock):
@@ -214,7 +263,13 @@ class OdtEmitter(BaseEmitter):
                 mode=mode,
             )
         elif isinstance(block, VectorBlock):
-            return ""
+            return self._render_vector(
+                vec=block,
+                auto_styles=auto_styles,
+                page_num=page_num,
+                page_width=page_width,
+                page_height=page_height,
+            )
         return ""
 
     def _render_paragraph(
@@ -223,6 +278,7 @@ class OdtEmitter(BaseEmitter):
         auto_styles: List[str],
         p_style_map: Dict[Tuple[str, str, str, str, str, str], str],
         t_style_map: Dict[Tuple[str, float, str, bool, bool, bool, bool], str],
+        used_fonts: Set[str],
         page_num: int,
         mode: ConversionMode,
     ) -> str:
@@ -260,7 +316,7 @@ class OdtEmitter(BaseEmitter):
 
         runs_xml: List[str] = []
         for r in p.runs:
-            runs_xml.append(self._render_run(r, auto_styles, t_style_map))
+            runs_xml.append(self._render_run(r, auto_styles, t_style_map, used_fonts))
 
         content_str = "".join(runs_xml)
 
@@ -281,17 +337,15 @@ class OdtEmitter(BaseEmitter):
         if mode == ConversionMode.CANVAS and p.bbox is not None:
             x_pt = f"{p.bbox.x0:.1f}pt"
             y_pt = f"{p.bbox.y0:.1f}pt"
-            w_pt = f"{p.bbox.width:.1f}pt"
+            w_pt = f"{p.bbox.width + 24.0:.1f}pt"
             h_pt = f"{p.bbox.height:.1f}pt"
             return (
-                f'      <text:p>\n'
                 f'        <draw:frame draw:style-name="Frame_Default" svg:x="{x_pt}" svg:y="{y_pt}" '
                 f'svg:width="{w_pt}" svg:height="{h_pt}" text:anchor-type="page" text:anchor-page-num="{page_num}">\n'
                 f'          <draw:text-box>\n'
                 f'    {elem_xml}\n'
                 f'          </draw:text-box>\n'
-                f'        </draw:frame>\n'
-                f'      </text:p>'
+                f'        </draw:frame>'
             )
 
         return elem_xml
@@ -301,9 +355,11 @@ class OdtEmitter(BaseEmitter):
         run: TextRun,
         auto_styles: List[str],
         t_style_map: Dict[Tuple[str, float, str, bool, bool, bool, bool], str],
+        used_fonts: Set[str],
     ) -> str:
         """Render a TextRun to <text:span>."""
         font = run.font_name or "Helvetica"
+        used_fonts.add(font)
         hex_c = _color_to_odf(run.color)
         t_key = (
             font,
@@ -321,6 +377,7 @@ class OdtEmitter(BaseEmitter):
 
             props = [
                 f'style:font-name="{xml_escape(font)}"',
+                f'fo:font-family="{xml_escape(font)}"',
                 f'fo:font-size="{run.font_size:.1f}pt"',
                 f'fo:color="{hex_c}"',
             ]
@@ -352,6 +409,7 @@ class OdtEmitter(BaseEmitter):
         t_style_map: Dict[Tuple[str, float, str, bool, bool, bool, bool], str],
         col_style_map: Dict[float, str],
         cell_style_map: Dict[Tuple[Optional[str], str], str],
+        used_fonts: Set[str],
         page_num: int,
     ) -> str:
         """Render a Table into <table:table> with column styles, headers, and cells."""
@@ -423,6 +481,7 @@ class OdtEmitter(BaseEmitter):
                                     auto_styles=auto_styles,
                                     p_style_map=p_style_map,
                                     t_style_map=t_style_map,
+                                    used_fonts=used_fonts,
                                     page_num=page_num,
                                     mode=ConversionMode.FLOW,
                                 )
@@ -465,13 +524,11 @@ class OdtEmitter(BaseEmitter):
             x_pt = f"{img.bbox.x0:.1f}pt"
             y_pt = f"{img.bbox.y0:.1f}pt"
             return (
-                f'      <text:p>\n'
                 f'        <draw:frame draw:name="{alt_text}" draw:style-name="Frame_Default" '
                 f'svg:x="{x_pt}" svg:y="{y_pt}" svg:width="{w_pt}" svg:height="{h_pt}" '
                 f'text:anchor-type="page" text:anchor-page-num="{page_num}">\n'
                 f'          <draw:image xlink:href="{part_name}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>\n'
-                f'        </draw:frame>\n'
-                f'      </text:p>'
+                f'        </draw:frame>'
             )
         else:
             return (
@@ -483,14 +540,83 @@ class OdtEmitter(BaseEmitter):
                 f'      </text:p>'
             )
 
-    def _build_styles_xml(self, first_page: DocumentPage) -> bytes:
+    def _render_vector(
+        self,
+        vec: VectorBlock,
+        auto_styles: List[str],
+        page_num: int,
+        page_width: float,
+        page_height: float,
+    ) -> str:
+        """Render a VectorBlock to ODF <draw:path>."""
+        if not vec.svg_path:
+            return ""
+
+        v_style_name = f"V{len(auto_styles) + 1}"
+        props: List[str] = [
+            'style:wrap="none"',
+            'style:vertical-pos="from-top"',
+            'style:vertical-rel="page"',
+            'style:horizontal-pos="from-left"',
+            'style:horizontal-rel="page"',
+        ]
+
+        if vec.stroke_color is not None and vec.stroke_width > 0:
+            stroke_hex = _color_to_odf(vec.stroke_color)
+            props.append(f'svg:stroke-color="{stroke_hex}"')
+            props.append(f'svg:stroke-width="{vec.stroke_width:.2f}pt"')
+            if vec.stroke_color.a < 1.0:
+                props.append(f'svg:stroke-opacity="{vec.stroke_color.a:.2f}"')
+        else:
+            props.append('draw:stroke="none"')
+
+        if vec.fill_color is not None:
+            fill_hex = _color_to_odf(vec.fill_color)
+            props.append('draw:fill="solid"')
+            props.append(f'draw:fill-color="{fill_hex}"')
+            if vec.fill_color.a < 1.0:
+                props.append(f'draw:opacity="{vec.fill_color.a:.2f}"')
+        else:
+            props.append('draw:fill="none"')
+
+        auto_styles.append(
+            f'  <style:style style:name="{v_style_name}" style:family="graphic">\n'
+            f'    <style:graphic-properties {" ".join(props)}/>\n'
+            f'  </style:style>'
+        )
+
+        escaped_d = xml_escape(vec.svg_path)
+        sw = max(0.5, vec.stroke_width)
+        bx0 = vec.bbox.x0
+        by0 = vec.bbox.y0
+        bw = max(sw, vec.bbox.width)
+        bh = max(sw, vec.bbox.height)
+
+        return (
+            f'        <draw:path draw:style-name="{v_style_name}" svg:d="{escaped_d}" '
+            f'svg:x="{bx0:.1f}pt" svg:y="{by0:.1f}pt" svg:width="{bw:.1f}pt" svg:height="{bh:.1f}pt" '
+            f'svg:viewBox="{bx0:.1f} {by0:.1f} {bw:.1f} {bh:.1f}" '
+            f'text:anchor-type="page" text:anchor-page-num="{page_num}"/>'
+        )
+
+    def _build_styles_xml(
+        self,
+        first_page: DocumentPage,
+        mode: ConversionMode = ConversionMode.FLOW,
+    ) -> bytes:
         """Generate styles.xml declaring page layout, margins, and headers/footers."""
         w_pt = f"{first_page.width:.1f}pt"
         h_pt = f"{first_page.height:.1f}pt"
-        m_t = f"{first_page.margin_top:.1f}pt"
-        m_b = f"{first_page.margin_bottom:.1f}pt"
-        m_l = f"{first_page.margin_left:.1f}pt"
-        m_r = f"{first_page.margin_right:.1f}pt"
+        if mode == ConversionMode.CANVAS:
+            m_t = "0pt"
+            m_b = "0pt"
+            m_l = "0pt"
+            m_r = "0pt"
+        else:
+            m_t = f"{first_page.margin_top:.1f}pt"
+            m_b = f"{first_page.margin_bottom:.1f}pt"
+            m_l = f"{first_page.margin_left:.1f}pt"
+            m_r = f"{first_page.margin_right:.1f}pt"
 
         header_xml = ""
         if first_page.header and first_page.header.content:

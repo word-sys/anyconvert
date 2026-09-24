@@ -335,7 +335,7 @@ def detect_borderless_tables(
         if x - valid_cols[-1] >= gutter_min:
             valid_cols.append(x)
 
-    if len(valid_cols) < min_columns:
+    if len(valid_cols) < min_columns or len(valid_cols) > 8:
         return []
 
     num_cols = len(valid_cols)
@@ -395,6 +395,13 @@ def detect_borderless_tables(
         )
 
     if len(table_rows) < min_rows:
+        return []
+
+    # Verify table grid density: at least 50% of cells must be populated
+    populated_cells = sum(1 for r in table_rows for c in r.cells if c.lines)
+    total_cells = len(table_rows) * num_cols
+    density = populated_cells / total_cells if total_cells > 0 else 0.0
+    if density < 0.5:
         return []
 
     # Compute overall table bounding box

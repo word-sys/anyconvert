@@ -6,7 +6,7 @@ features into strictly typed, verified DocumentIR and DocumentPage hierarchies.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from anyconvert.common.color import Color
 from anyconvert.common.geometry import BoundingBox, Point
@@ -229,6 +229,44 @@ def _table_layout_to_dir(tbl_layout: TableLayout) -> Table:
     )
 
 
+def _flip_svg_path_y(svg_path: str, page_height: float) -> str:
+    """Transform SVG path coordinates from PDF space (bottom-up) to doc space (top-down)."""
+    tokens = svg_path.split()
+    res: List[str] = []
+    i = 0
+    n = len(tokens)
+    while i < n:
+        cmd = tokens[i]
+        res.append(cmd)
+        i += 1
+        if cmd in ("M", "L"):
+            if i + 1 < n:
+                try:
+                    x = float(tokens[i])
+                    y = float(tokens[i + 1])
+                    res.append(f"{x:.2f}")
+                    res.append(f"{page_height - y:.2f}")
+                except ValueError:
+                    res.append(tokens[i])
+                    res.append(tokens[i + 1])
+                i += 2
+        elif cmd == "C":
+            for _ in range(3):
+                if i + 1 < n:
+                    try:
+                        x = float(tokens[i])
+                        y = float(tokens[i + 1])
+                        res.append(f"{x:.2f}")
+                        res.append(f"{page_height - y:.2f}")
+                    except ValueError:
+                        res.append(tokens[i])
+                        res.append(tokens[i + 1])
+                    i += 2
+        elif cmd == "Z":
+            pass
+    return " ".join(res)
+
+
 class DocumentIRBuilder:
     """Builder engine orchestrating layout synthesis into validated DocumentIR."""
 
@@ -245,6 +283,7 @@ class DocumentIRBuilder:
         page_number: int = 1,
         known_headers: Optional[Set[str]] = None,
         known_footers: Optional[Set[str]] = None,
+        mode: Union[Any, str] = "flow",
     ) -> DocumentPage:
         """Construct a DocumentPage from evaluated content interpreter output.
 
@@ -255,6 +294,7 @@ class DocumentIRBuilder:
             page_number: 1-indexed page sequence number.
             known_headers: Confirmed repeating running header strings.
             known_footers: Confirmed repeating running footer strings.
+            mode: ConversionMode or str ("flow" or "canvas").
 
         Returns:
             Fully structured DocumentPage instance.
@@ -273,13 +313,15 @@ class DocumentIRBuilder:
 
         body_lines = flow_partition.body_lines
 
-        # 3. Detect vector and borderless tables
+        # 3. Detect vector and borderless tables (only in FLOW mode)
         detected_tables = detect_tables_from_vectors(
             vectors=output.vector_elements,
             lines=body_lines,
             page_height=page_height,
         )
-        if not detected_tables:
+        mode_val = str(getattr(mode, "value", mode)).lower()
+        is_canvas = mode_val == "canvas"
+        if not detected_tables and not is_canvas:
             detected_tables = detect_borderless_tables(body_lines)
 
         # Track elements absorbed into tables
@@ -302,7 +344,7 @@ class DocumentIRBuilder:
                     continue
                 norm_vectors.append(
                     VectorBlock(
-                        svg_path=v.svg_path,
+                        svg_path=_flip_svg_path_y(v.svg_path, page_height),
                         bbox=vb,
                         fill_color=v.fill_color,
                         stroke_color=v.stroke_color,
@@ -342,8 +384,19 @@ class DocumentIRBuilder:
         all_clusters: List[ParagraphCluster] = []
         for lb in layout_blocks:
             if lb.lines:
-                clusters = cluster_lines_to_paragraphs(lb.lines, container_bbox=lb.bbox)
-                all_clusters.extend(clusters)
+                if is_canvas:
+                    for line in lb.lines:
+                        all_clusters.append(
+                            ParagraphCluster(
+                                lines=[line],
+                                bbox=line.bbox,
+                                alignment=LayoutAlignment.LEFT,
+                                line_spacing=1.15,
+                            )
+                        )
+                else:
+                    clusters = cluster_lines_to_paragraphs(lb.lines, container_bbox=lb.bbox)
+                    all_clusters.extend(clusters)
 
         # Classify headings and lists globally across all page clusters
         if all_clusters:

@@ -150,19 +150,49 @@ class DocxEmitter(BaseEmitter):
 
         total_pages = len(doc_ir.pages)
         for page_idx, page in enumerate(doc_ir.pages):
-            # Page content blocks
-            for block in page.blocks:
-                b_xml = self._render_block(
-                    block=block,
-                    pkg=pkg,
-                    doc_rels=doc_rels,
-                    used_fonts=used_fonts,
-                    image_counter_ref=[image_counter],
-                    mode=mode,
-                )
-                if b_xml:
-                    body_xml_lines.append(b_xml)
-                image_counter = pkg_images_count(pkg) + 1
+            if mode == ConversionMode.CANVAS:
+                # Group vector blocks into a single zero-spacing paragraph with behindDoc="1" drawings
+                vector_runs: List[str] = []
+                shape_id = (page_idx + 1) * 1000
+                for block in page.blocks:
+                    if isinstance(block, VectorBlock) and block.svg_path:
+                        shape_id += 1
+                        vr = self._render_vector_run(block, page.width, page.height, shape_id)
+                        if vr:
+                            vector_runs.append(vr)
+                if vector_runs:
+                    body_xml_lines.append(
+                        '    <w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="1" w:lineRule="exact"/></w:pPr>\n'
+                        + "".join(vector_runs)
+                        + "    </w:p>"
+                    )
+                for block in page.blocks:
+                    if not isinstance(block, VectorBlock):
+                        b_xml = self._render_block(
+                            block=block,
+                            pkg=pkg,
+                            doc_rels=doc_rels,
+                            used_fonts=used_fonts,
+                            image_counter_ref=[image_counter],
+                            mode=mode,
+                        )
+                        if b_xml:
+                            body_xml_lines.append(b_xml)
+                        image_counter = pkg_images_count(pkg) + 1
+            else:
+                # Page content blocks
+                for block in page.blocks:
+                    b_xml = self._render_block(
+                        block=block,
+                        pkg=pkg,
+                        doc_rels=doc_rels,
+                        used_fonts=used_fonts,
+                        image_counter_ref=[image_counter],
+                        mode=mode,
+                    )
+                    if b_xml:
+                        body_xml_lines.append(b_xml)
+                    image_counter = pkg_images_count(pkg) + 1
 
             # Insert page break between pages (except last)
             if page_idx < total_pages - 1:
@@ -173,10 +203,16 @@ class DocxEmitter(BaseEmitter):
         # Section properties on last page (or overall document)
         pg_w = pt_to_dxa(first_page.width)
         pg_h = pt_to_dxa(first_page.height)
-        m_top = pt_to_dxa(first_page.margin_top)
-        m_bottom = pt_to_dxa(first_page.margin_bottom)
-        m_left = pt_to_dxa(first_page.margin_left)
-        m_right = pt_to_dxa(first_page.margin_right)
+        if mode == ConversionMode.CANVAS:
+            m_top = 0
+            m_bottom = 0
+            m_left = 0
+            m_right = 0
+        else:
+            m_top = pt_to_dxa(first_page.margin_top)
+            m_bottom = pt_to_dxa(first_page.margin_bottom)
+            m_left = pt_to_dxa(first_page.margin_left)
+            m_right = pt_to_dxa(first_page.margin_right)
 
         sect_lines = [
             "    <w:sectPr>",
@@ -201,7 +237,8 @@ class DocxEmitter(BaseEmitter):
             '            xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"\n'
             '            xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"\n'
             '            xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"\n'
-            '            xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">\n'
+            '            xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"\n'
+            '            xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">\n'
             "  <w:body>\n"
             + "\n".join(body_xml_lines)
             + "\n  </w:body>\n</w:document>"
@@ -293,7 +330,7 @@ class DocxEmitter(BaseEmitter):
 
         # 2. Canvas mode absolute frame placement (sequence #5)
         if mode == ConversionMode.CANVAS and p.bbox is not None:
-            w_dxa = pt_to_dxa(p.bbox.width)
+            w_dxa = pt_to_dxa(p.bbox.width + 24.0)
             h_dxa = pt_to_dxa(p.bbox.height)
             x_dxa = pt_to_dxa(p.bbox.x0)
             y_dxa = pt_to_dxa(p.bbox.y0)
@@ -550,6 +587,90 @@ class DocxEmitter(BaseEmitter):
 
         return drawing_xml
 
+    def _render_vector_run(
+        self,
+        vec: VectorBlock,
+        page_width: float,
+        page_height: float,
+        shape_id: int,
+    ) -> str:
+        """Render a VectorBlock to a DrawingML run (<w:r><w:drawing>...)."""
+        if not vec.svg_path:
+            return ""
+
+        scale = 100.0
+        dml_path = _svg_path_to_drawingml(vec.svg_path, scale=scale)
+        if not dml_path:
+            return ""
+
+        pw_units = int(round(page_width * scale))
+        ph_units = int(round(page_height * scale))
+        cx_emu = pt_to_emu(page_width)
+        cy_emu = pt_to_emu(page_height)
+
+        # Fill
+        if vec.fill_color is not None:
+            f_hex = color_to_hex(vec.fill_color)
+            if vec.fill_color.a < 1.0:
+                alpha = int(round(vec.fill_color.a * 100000))
+                fill_xml = f'<a:solidFill><a:srgbClr val="{f_hex}"><a:alpha val="{alpha}"/></a:srgbClr></a:solidFill>'
+            else:
+                fill_xml = f'<a:solidFill><a:srgbClr val="{f_hex}"/></a:solidFill>'
+        else:
+            fill_xml = '<a:noFill/>'
+
+        # Stroke
+        if vec.stroke_color is not None and vec.stroke_width > 0:
+            s_hex = color_to_hex(vec.stroke_color)
+            w_emu = pt_to_emu(max(0.5, vec.stroke_width))
+            if vec.stroke_color.a < 1.0:
+                alpha = int(round(vec.stroke_color.a * 100000))
+                ln_xml = f'<a:ln w="{w_emu}"><a:solidFill><a:srgbClr val="{s_hex}"><a:alpha val="{alpha}"/></a:srgbClr></a:solidFill></a:ln>'
+            else:
+                ln_xml = f'<a:ln w="{w_emu}"><a:solidFill><a:srgbClr val="{s_hex}"/></a:solidFill></a:ln>'
+        else:
+            ln_xml = '<a:ln><a:noFill/></a:ln>'
+
+        return (
+            '      <w:r>\n'
+            '        <w:drawing>\n'
+            '          <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="1"\n'
+            '                     behindDoc="1" locked="0" layoutInCell="0" allowOverlap="1">\n'
+            '            <wp:simplePos x="0" y="0"/>\n'
+            '            <wp:positionH relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionH>\n'
+            '            <wp:positionV relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionV>\n'
+            f'            <wp:extent cx="{cx_emu}" cy="{cy_emu}"/>\n'
+            '            <wp:effectExtent l="0" t="0" r="0" b="0"/>\n'
+            '            <wp:wrapNone/>\n'
+            f'            <wp:docPr id="{shape_id}" name="Vector_{shape_id}"/>\n'
+            '            <wp:cNvGraphicFramePr/>\n'
+            '            <a:graphic>\n'
+            '              <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">\n'
+            '                <wps:wsp>\n'
+            '                  <wps:cNvSpPr/>\n'
+            '                  <wps:spPr>\n'
+            f'                    <a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx_emu}" cy="{cy_emu}"/></a:xfrm>\n'
+            '                    <a:custGeom>\n'
+            '                      <a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/>\n'
+            f'                      <a:rect l="0" t="0" r="{pw_units}" b="{ph_units}"/>\n'
+            '                      <a:pathLst>\n'
+            f'                        <a:path w="{pw_units}" h="{ph_units}">\n'
+            f'                          {dml_path}\n'
+            '                        </a:path>\n'
+            '                      </a:pathLst>\n'
+            '                    </a:custGeom>\n'
+            f'                    {fill_xml}\n'
+            f'                    {ln_xml}\n'
+            '                  </wps:spPr>\n'
+            '                  <wps:bodyPr/>\n'
+            '                </wps:wsp>\n'
+            '              </a:graphicData>\n'
+            '            </a:graphic>\n'
+            '          </wp:anchor>\n'
+            '        </w:drawing>\n'
+            '      </w:r>\n'
+        )
+
     def _build_header_footer_xml(
         self,
         hf: PageHeaderFooter,
@@ -655,6 +776,57 @@ class DocxEmitter(BaseEmitter):
 def pkg_images_count(pkg: OPCPackage) -> int:
     """Count how many media images are currently registered in package."""
     return sum(1 for name in pkg.parts if name.startswith("word/media/"))
+
+
+def _svg_path_to_drawingml(svg_path: str, scale: float = 100.0) -> str:
+    """Convert an SVG path with M, L, C, Z commands to DrawingML path markup."""
+    tokens = svg_path.split()
+    dml_cmds: List[str] = []
+    i = 0
+    n = len(tokens)
+    while i < n:
+        cmd = tokens[i]
+        i += 1
+        if cmd == "M":
+            if i + 1 < n:
+                try:
+                    x = int(round(float(tokens[i]) * scale))
+                    y = int(round(float(tokens[i + 1]) * scale))
+                    dml_cmds.append(f'<a:moveTo><a:pt x="{x}" y="{y}"/></a:moveTo>')
+                except ValueError:
+                    pass
+                i += 2
+        elif cmd == "L":
+            if i + 1 < n:
+                try:
+                    x = int(round(float(tokens[i]) * scale))
+                    y = int(round(float(tokens[i + 1]) * scale))
+                    dml_cmds.append(f'<a:lnTo><a:pt x="{x}" y="{y}"/></a:lnTo>')
+                except ValueError:
+                    pass
+                i += 2
+        elif cmd == "C":
+            if i + 5 < n:
+                try:
+                    x1 = int(round(float(tokens[i]) * scale))
+                    y1 = int(round(float(tokens[i + 1]) * scale))
+                    x2 = int(round(float(tokens[i + 2]) * scale))
+                    y2 = int(round(float(tokens[i + 3]) * scale))
+                    x = int(round(float(tokens[i + 4]) * scale))
+                    y = int(round(float(tokens[i + 5]) * scale))
+                    dml_cmds.append(
+                        f'<a:cubicBezTo>'
+                        f'<a:pt x="{x1}" y="{y1}"/>'
+                        f'<a:pt x="{x2}" y="{y2}"/>'
+                        f'<a:pt x="{x}" y="{y}"/>'
+                        f'</a:cubicBezTo>'
+                    )
+                except ValueError:
+                    pass
+                i += 6
+        elif cmd in ("Z", "z"):
+            dml_cmds.append('<a:close/>')
+    return "".join(dml_cmds)
 
 
 __all__ = ["DocxEmitter"]
