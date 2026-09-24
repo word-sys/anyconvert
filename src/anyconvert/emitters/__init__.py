@@ -2,6 +2,8 @@
 
 from anyconvert.emitters.base import BaseEmitter, ConversionMode
 from anyconvert.emitters.docx import DocxEmitter
+from anyconvert.emitters.odp import OdpEmitter
+from anyconvert.emitters.odt import OdtEmitter
 from anyconvert.emitters.pptx import PptxEmitter
 
 __all__ = [
@@ -9,4 +11,6 @@ __all__ = [
     "ConversionMode",
     "DocxEmitter",
     "PptxEmitter",
+    "OdtEmitter",
+    "OdpEmitter",
 ]
