@@ -449,10 +449,13 @@ class OPCPackage:
             f'<Relationships xmlns="{RELATIONSHIPS_NS}">',
         ]
 
-        sorted_rels = sorted(
-            rels,
-            key=lambda r: int(re.sub(r"\D", "", r.rel_id)) if re.sub(r"\D", "", r.rel_id) else r.rel_id,
-        )
+        def _rel_sort_key(r: OPCRelationship) -> Tuple[int, int, str]:
+            match = re.match(r"^rId(\d+)$", r.rel_id)
+            if match:
+                return (0, int(match.group(1)), "")
+            return (1, 0, r.rel_id)
+
+        sorted_rels = sorted(rels, key=_rel_sort_key)
         for r in sorted_rels:
             tm_attr = ' TargetMode="External"' if r.target_mode == "External" else ""
             lines.append(
