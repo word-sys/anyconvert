@@ -90,9 +90,46 @@ class TestScaffoldingAndPackaging(unittest.TestCase):
         exit_code = main([])
         self.assertEqual(exit_code, 1)
 
+        # Missing input should return 1
+        exit_code_missing = main(["nonexistent_file.pdf", "-f", "odt"])
+        self.assertEqual(exit_code_missing, 1)
+
         # Valid input should return 0
-        exit_code = main(["test.pdf", "-f", "odt"])
-        self.assertEqual(exit_code, 0)
+        import tempfile
+        pdf_bytes = (
+            b"%PDF-1.4\n"
+            b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+            b"2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n"
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>\nendobj\n"
+            b"4 0 obj\n<< /Length 44 >>\nstream\n"
+            b"BT /F1 12 Tf 72 400 Td (Hello World) Tj ET\n"
+            b"endstream\nendobj\n"
+        )
+        off1 = pdf_bytes.find(b"1 0 obj")
+        off2 = pdf_bytes.find(b"2 0 obj")
+        off3 = pdf_bytes.find(b"3 0 obj")
+        off4 = pdf_bytes.find(b"4 0 obj")
+        xref_pos = len(pdf_bytes)
+        xref_bytes = (
+            b"xref\n"
+            b"0 5\n"
+            b"0000000000 65535 f\r\n"
+            + f"{off1:010d} 00000 n\r\n".encode("ascii")
+            + f"{off2:010d} 00000 n\r\n".encode("ascii")
+            + f"{off3:010d} 00000 n\r\n".encode("ascii")
+            + f"{off4:010d} 00000 n\r\n".encode("ascii")
+            + b"trailer\n"
+            b"<< /Size 5 /Root 1 0 R >>\n"
+            b"startxref\n"
+            + f"{xref_pos}\n".encode("ascii")
+            + b"%%EOF\n"
+        )
+        full_pdf = pdf_bytes + xref_bytes
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            test_pdf = pathlib.Path(tmp_dir) / "test.pdf"
+            test_pdf.write_bytes(full_pdf)
+            exit_code = main([str(test_pdf), "-f", "odt"])
+            self.assertEqual(exit_code, 0)
 
 
 class TestExceptionHierarchy(unittest.TestCase):

@@ -6,6 +6,12 @@ and TXT with mathematical precision and dual-mode layout reconstruction.
 
 from __future__ import annotations
 
+from anyconvert.api import (
+    ConversionMode,
+    convert,
+    convert_bytes,
+    pdf_to_document_ir,
+)
 from anyconvert.exceptions import (
     AnyConvertError,
     EmitterError,
@@ -28,6 +34,8 @@ from anyconvert.exceptions import (
     UnsupportedFormatError,
     XYCutError,
 )
+from anyconvert.ir.model import DocumentIR, DocumentPage
+from anyconvert.pdf.document import PDFDocument
 
 __version__ = "0.1.0"
 __author__ = "anyconvert contributors"
@@ -37,6 +45,13 @@ __all__ = [
     "__version__",
     "__author__",
     "__license__",
+    "convert",
+    "convert_bytes",
+    "pdf_to_document_ir",
+    "ConversionMode",
+    "DocumentIR",
+    "DocumentPage",
+    "PDFDocument",
     "AnyConvertError",
     "PDFError",
     "PDFSyntaxError",

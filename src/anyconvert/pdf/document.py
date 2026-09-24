@@ -10,10 +10,19 @@ import pathlib
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from anyconvert.common.reader import ByteReader
-from anyconvert.exceptions import PDFError, PDFObjectError, PDFSyntaxError
+from anyconvert.exceptions import (
+    PDFError,
+    PDFObjectError,
+    PDFPasswordRequiredError,
+    PDFSecurityError,
+    PDFSyntaxError,
+)
+from anyconvert.pdf.crypto.handler import SecurityHandler
+from anyconvert.pdf.filters import decode_stream
 from anyconvert.pdf.parser import (
     PDFArray,
     PDFDict,
+    PDFHexString,
     PDFIndirectRef,
     PDFName,
     PDFObject,
@@ -32,13 +41,19 @@ class PDFDocument:
         "_info",
         "_page_refs",
         "_page_dicts",
+        "_security_handler",
     )
 
-    def __init__(self, source: Union[str, pathlib.Path, bytes, bytearray, ByteReader]) -> None:
+    def __init__(
+        self,
+        source: Union[str, pathlib.Path, bytes, bytearray, ByteReader],
+        password: str = "",
+    ) -> None:
         """Initialize PDFDocument from file path, bytes, or ByteReader.
 
         Args:
             source: File path, raw bytes, or ByteReader.
+            password: Optional password for encrypted documents.
         """
         reader: ByteReader
         if isinstance(source, (str, pathlib.Path)):
@@ -54,6 +69,20 @@ class PDFDocument:
         self._info: Optional[PDFDict] = None
         self._page_refs: Optional[List[PDFDict]] = None
         self._page_dicts: Dict[int, PDFDict] = {}
+        self._security_handler: Optional[SecurityHandler] = None
+
+        # Authenticate if encrypted
+        if "Encrypt" in self.trailer:
+            encrypt_obj = self._resolver.dereference(self.trailer.get("Encrypt"))
+            if isinstance(encrypt_obj, PDFDict):
+                doc_ids = self.trailer.get("ID")
+                id_seq = doc_ids if isinstance(doc_ids, (list, PDFArray)) else None
+                handler = SecurityHandler(encrypt_obj, id_seq)
+                if not handler.authenticate(password):
+                    raise PDFPasswordRequiredError(
+                        "PDF document is password protected; incorrect or missing password"
+                    )
+                self._security_handler = handler
 
     @property
     def resolver(self) -> XRefResolver:
@@ -209,8 +238,31 @@ class PDFDocument:
             return rot % 360
         return 0
 
+    @property
+    def security_handler(self) -> Optional[SecurityHandler]:
+        """Security handler if document is encrypted."""
+        return self._security_handler
+
+    def get_metadata(self) -> Dict[str, str]:
+        """Extract document metadata key-value pairs from /Info dictionary."""
+        meta: Dict[str, str] = {}
+        info_dict = self.info
+        if not info_dict:
+            return meta
+        for k, v in info_dict.items():
+            key_name = str(k)
+            if isinstance(v, (PDFString, PDFHexString)):
+                meta[key_name] = v.as_text()
+            elif isinstance(v, str):
+                meta[key_name] = v
+            elif isinstance(v, bytes):
+                meta[key_name] = v.decode("latin-1", errors="replace")
+            else:
+                meta[key_name] = str(v)
+        return meta
+
     def get_page_content_bytes(self, page_dict: PDFDict) -> bytes:
-        """Extract and concatenate all raw /Contents stream payloads for a page.
+        """Extract, decrypt, decompress, and concatenate all /Contents stream payloads for a page.
 
         Returns:
             bytes: Decompressed content stream bytes.
@@ -219,30 +271,48 @@ class PDFDocument:
         if contents_ref is None:
             return b""
 
-        contents_obj = self._resolver.dereference(contents_ref)
-        streams: List[PDFStream] = []
+        stream_entries: List[Tuple[PDFStream, Optional[Tuple[int, int]]]] = []
 
-        if isinstance(contents_obj, PDFStream):
-            streams.append(contents_obj)
-        elif isinstance(contents_obj, (list, PDFArray)):
-            for item in contents_obj:
-                s = self._resolver.dereference(item)
-                if isinstance(s, PDFStream):
-                    streams.append(s)
+        if isinstance(contents_ref, PDFIndirectRef):
+            obj = self._resolver.resolve_object(contents_ref.obj_id)
+            if isinstance(obj, PDFStream):
+                stream_entries.append((obj, (contents_ref.obj_id, contents_ref.generation)))
+            elif isinstance(obj, (list, PDFArray)):
+                for item in obj:
+                    if isinstance(item, PDFIndirectRef):
+                        s = self._resolver.resolve_object(item.obj_id)
+                        if isinstance(s, PDFStream):
+                            stream_entries.append((s, (item.obj_id, item.generation)))
+                    elif isinstance(item, PDFStream):
+                        stream_entries.append((item, None))
+        elif isinstance(contents_ref, PDFStream):
+            stream_entries.append((contents_ref, None))
+        elif isinstance(contents_ref, (list, PDFArray)):
+            for item in contents_ref:
+                if isinstance(item, PDFIndirectRef):
+                    s = self._resolver.resolve_object(item.obj_id)
+                    if isinstance(s, PDFStream):
+                        stream_entries.append((s, (item.obj_id, item.generation)))
+                elif isinstance(item, PDFStream):
+                    stream_entries.append((item, None))
 
         out_chunks: List[bytes] = []
-        for stm in streams:
+        for stm, ref_tuple in stream_entries:
             raw = stm.get_raw_bytes()
-            # Decompress if FlateDecode
-            filter_val = stm.dict.get("Filter")
-            if filter_val == PDFName("FlateDecode") or filter_val == "FlateDecode":
-                import zlib
-
+            if self._security_handler is not None and ref_tuple is not None:
                 try:
-                    out_chunks.append(zlib.decompress(raw))
+                    raw = self._security_handler.decrypt_data(
+                        raw, obj_id=ref_tuple[0], gen=ref_tuple[1], is_stream=True
+                    )
                 except Exception:
-                    out_chunks.append(raw)
-            else:
+                    pass
+
+            filter_val = stm.dict.get("Filter")
+            parms_val = stm.dict.get("DecodeParms")
+            try:
+                decompressed = decode_stream(raw, filter_val, parms_val)
+                out_chunks.append(decompressed)
+            except Exception:
                 out_chunks.append(raw)
 
         return b"\n".join(out_chunks)

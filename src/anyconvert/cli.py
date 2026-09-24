@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import pathlib
 import sys
 from typing import Sequence
 
@@ -86,14 +87,47 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help(sys.stderr)
         return 1
 
-    # In Phase 1 scaffolding, we validate arguments and print status.
-    # Full API invocation is wired up in Phase 20.
+    input_path = pathlib.Path(args.input)
+    if not input_path.exists():
+        sys.stderr.write(f"Error: Input file '{args.input}' not found.\n")
+        return 1
+
+    # Determine output path
+    if args.output:
+        output_path = pathlib.Path(args.output)
+    else:
+        output_path = input_path.with_suffix(f".{args.format.lower()}")
+
     if args.verbose:
         sys.stderr.write(
-            f"[anyconvert] Input: {args.input}, Target: {args.format}, Mode: {args.mode}\n"
+            f"[anyconvert] Input: {input_path}, Output: {output_path}, "
+            f"Format: {args.format}, Mode: {args.mode}\n"
         )
 
-    return 0
+    try:
+        from anyconvert.api import convert
+        from anyconvert.exceptions import AnyConvertError
+
+        res_bytes = convert(
+            input_path=input_path,
+            output_format=args.format,
+            output_path=output_path,
+            mode=args.mode,
+            password=args.password,
+        )
+
+        if args.verbose:
+            sys.stderr.write(
+                f"[anyconvert] Successfully converted {len(res_bytes)} bytes to '{output_path}'.\n"
+            )
+        return 0
+
+    except AnyConvertError as err:
+        sys.stderr.write(f"Conversion error: {err}\n")
+        return 1
+    except Exception as err:
+        sys.stderr.write(f"Error: {err}\n")
+        return 1
 
 
 if __name__ == "__main__":
