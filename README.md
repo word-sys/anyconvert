@@ -1,6 +1,6 @@
 # anyconvert
 
-**Pure-Python enterprise document conversion engine with zero runtime dependencies.**
+**Python document conversion engine**
 
 `anyconvert` converts PDF documents into **DOCX**, **PPTX**, **ODT**, **ODP**, and **TXT** with mathematical precision, standards-compliant container packaging, and dual-mode layout reconstruction (Semantic Flow vs. Spatial Canvas).
 
@@ -8,7 +8,6 @@
 
 ## Key Capabilities
 
-- **Zero Runtime Dependencies**: Standard library only. No C-extensions, no PyPI packages, and no external runtime tools (no Poppler, LibreOffice, Pandoc, or Ghostscript).
 - **Dual Layout Engines**:
   - **Flow Mode** (`flow`): Reconstructs semantic reading order, headings (`H1`–`H6`), hierarchical lists, text alignment, reflowable paragraphs, and tables.
   - **Canvas Mode** (`canvas`): Preserves exact 2D coordinates using DrawingML shapes, anchored frames, and absolute-positioned text frames.
