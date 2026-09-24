@@ -286,7 +286,12 @@ class DocxEmitter(BaseEmitter):
         """Render a DIR Paragraph to <w:p>."""
         p_pr_elements: List[str] = []
 
-        # Canvas mode absolute frame placement
+        # 1. Heading style (sequence #1)
+        if p.heading_level and p.heading_level in _HEADING_STYLE_MAP:
+            style_name = _HEADING_STYLE_MAP[p.heading_level]
+            p_pr_elements.append(f'      <w:pStyle w:val="{style_name}"/>')
+
+        # 2. Canvas mode absolute frame placement (sequence #5)
         if mode == ConversionMode.CANVAS and p.bbox is not None:
             w_dxa = pt_to_dxa(p.bbox.width)
             h_dxa = pt_to_dxa(p.bbox.height)
@@ -297,17 +302,15 @@ class DocxEmitter(BaseEmitter):
                 f'w:x="{x_dxa}" w:y="{y_dxa}" w:hAnchor="page" w:vAnchor="page" w:wrap="none"/>'
             )
 
-        # Heading style
-        if p.heading_level and p.heading_level in _HEADING_STYLE_MAP:
-            style_name = _HEADING_STYLE_MAP[p.heading_level]
-            p_pr_elements.append(f'      <w:pStyle w:val="{style_name}"/>')
+        # 3. Lists & bullets (sequence #7)
+        if p.list_marker:
+            num_id = 1 if p.list_marker in ("•", "o", "▪", "-", "*", "–", "—") else 2
+            ilvl = max(0, min(8, p.list_level))
+            p_pr_elements.append(
+                f'      <w:numPr><w:ilvl w:val="{ilvl}"/><w:numId w:val="{num_id}"/></w:numPr>'
+            )
 
-        # Alignment
-        jc_val = _ALIGN_MAP.get(p.alignment, "left")
-        if jc_val != "left":
-            p_pr_elements.append(f'      <w:jc w:val="{jc_val}"/>')
-
-        # Spacing
+        # 4. Spacing (sequence #21)
         sp_before = pt_to_dxa(p.space_before)
         sp_after = pt_to_dxa(p.space_after)
         line_val = int(round(240 * p.line_spacing)) if p.line_spacing > 0 else 240
@@ -317,7 +320,7 @@ class DocxEmitter(BaseEmitter):
                 f'w:line="{line_val}" w:lineRule="auto"/>'
             )
 
-        # Indentation
+        # 5. Indentation (sequence #22)
         ind_left = pt_to_dxa(p.indent_left)
         ind_right = pt_to_dxa(p.indent_right)
         ind_first = pt_to_dxa(p.indent_first_line)
@@ -333,13 +336,10 @@ class DocxEmitter(BaseEmitter):
                 ind_attrs.append(f'w:hanging="{-ind_first}"')
             p_pr_elements.append(f'      <w:ind {" ".join(ind_attrs)}/>')
 
-        # Lists & bullets
-        if p.list_marker:
-            num_id = 1 if p.list_marker in ("•", "o", "▪", "-", "*", "–", "—") else 2
-            ilvl = max(0, min(8, p.list_level))
-            p_pr_elements.append(
-                f'      <w:numPr><w:ilvl w:val="{ilvl}"/><w:numId w:val="{num_id}"/></w:numPr>'
-            )
+        # 6. Alignment (sequence #26)
+        jc_val = _ALIGN_MAP.get(p.alignment, "left")
+        if jc_val != "left":
+            p_pr_elements.append(f'      <w:jc w:val="{jc_val}"/>')
 
         runs_xml: List[str] = []
         for run in p.runs:
@@ -484,7 +484,10 @@ class DocxEmitter(BaseEmitter):
               <wp:posOffset>{y_emu}</wp:posOffset>
             </wp:positionV>
             <wp:extent cx="{cx_emu}" cy="{cy_emu}"/>
+            <wp:effectExtent l="0" t="0" r="0" b="0"/>
+            <wp:wrapNone/>
             <wp:docPr id="{img_num}" name="{alt_str}"/>
+            <wp:cNvGraphicFramePr/>
             <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
               <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
                 <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
@@ -516,7 +519,9 @@ class DocxEmitter(BaseEmitter):
         <w:drawing>
           <wp:inline distT="0" distB="0" distL="0" distR="0">
             <wp:extent cx="{cx_emu}" cy="{cy_emu}"/>
+            <wp:effectExtent l="0" t="0" r="0" b="0"/>
             <wp:docPr id="{img_num}" name="{alt_str}"/>
+            <wp:cNvGraphicFramePr/>
             <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
               <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
                 <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">

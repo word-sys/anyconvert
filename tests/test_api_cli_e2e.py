@@ -8,6 +8,7 @@ import pathlib
 import struct
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 import zipfile
 from typing import List, Tuple
 
@@ -18,6 +19,7 @@ from anyconvert.api import (
     pdf_to_document_ir,
 )
 from anyconvert.cli import main
+from anyconvert.emitters.base import xml_escape
 from anyconvert.exceptions import (
     PDFPasswordRequiredError,
     PDFSyntaxError,
@@ -375,6 +377,50 @@ class TestCLIExecution(unittest.TestCase):
         """Verify CLI returns error code 1 when input file is not found."""
         exit_code = main(["nonexistent_file_path.pdf", "-f", "docx"])
         self.assertEqual(exit_code, 1)
+
+
+class TestRegressionFixes(unittest.TestCase):
+    """Regression test suite for CMap decompression, XML sanitization, and real PDF conversions."""
+
+    def test_xml_sanitization(self) -> None:
+        """Verify xml_escape eliminates ASCII control characters prohibited by XML 1.0."""
+        dirty = "Hello\x00\x03\x04\x08World\x0b\x0c\x0e\x1f!\x09\x0a\x0d"
+        clean = xml_escape(dirty)
+        self.assertEqual(clean, "HelloWorld!\t\n\r")
+        root = ET.fromstring(f"<root>{clean}</root>")
+        self.assertIn("HelloWorld!", root.text or "")
+
+    def test_real_target_pdf_conversion_if_present(self) -> None:
+        """Verify end-to-end conversion of the target PDF if present on desktop."""
+        target_pdf = pathlib.Path("/home/word-sys/Desktop/edited_document1qwe.pdf")
+        if not target_pdf.exists():
+            self.skipTest("Target PDF not present in environment")
+
+        # 1. DOCX Canvas conversion
+        docx_bytes = convert(target_pdf, "docx", mode="canvas")
+        self.assertGreater(len(docx_bytes), 50000)
+        zf_docx = zipfile.ZipFile(io.BytesIO(docx_bytes))
+        for name in zf_docx.namelist():
+            if name.endswith(".xml"):
+                ET.fromstring(zf_docx.read(name))
+        doc_xml = zf_docx.read("word/document.xml").decode("utf-8")
+        self.assertIn("word-sys", doc_xml)
+
+        # 2. ODT Canvas conversion
+        odt_bytes = convert(target_pdf, "odt", mode="canvas")
+        self.assertGreater(len(odt_bytes), 50000)
+        zf_odt = zipfile.ZipFile(io.BytesIO(odt_bytes))
+        for name in zf_odt.namelist():
+            if name.endswith(".xml"):
+                ET.fromstring(zf_odt.read(name))
+        content_xml = zf_odt.read("content.xml").decode("utf-8")
+        self.assertIn("word-sys", content_xml)
+
+        # 3. TXT Flow conversion
+        txt_bytes = convert(target_pdf, "txt", mode="flow")
+        txt_str = txt_bytes.decode("utf-8")
+        self.assertIn("word-sys", txt_str)
+        self.assertNotIn("+HOOR", txt_str)
 
 
 if __name__ == "__main__":

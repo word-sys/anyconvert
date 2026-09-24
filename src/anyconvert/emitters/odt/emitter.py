@@ -284,12 +284,14 @@ class OdtEmitter(BaseEmitter):
             w_pt = f"{p.bbox.width:.1f}pt"
             h_pt = f"{p.bbox.height:.1f}pt"
             return (
-                f'      <draw:frame draw:style-name="Frame_Default" svg:x="{x_pt}" svg:y="{y_pt}" '
+                f'      <text:p>\n'
+                f'        <draw:frame draw:style-name="Frame_Default" svg:x="{x_pt}" svg:y="{y_pt}" '
                 f'svg:width="{w_pt}" svg:height="{h_pt}" text:anchor-type="page" text:anchor-page-num="{page_num}">\n'
-                f'        <draw:text-box>\n'
+                f'          <draw:text-box>\n'
                 f'    {elem_xml}\n'
-                f'        </draw:text-box>\n'
-                f'      </draw:frame>'
+                f'          </draw:text-box>\n'
+                f'        </draw:frame>\n'
+                f'      </text:p>'
             )
 
         return elem_xml
@@ -463,11 +465,13 @@ class OdtEmitter(BaseEmitter):
             x_pt = f"{img.bbox.x0:.1f}pt"
             y_pt = f"{img.bbox.y0:.1f}pt"
             return (
-                f'      <draw:frame draw:name="{alt_text}" draw:style-name="Frame_Default" '
+                f'      <text:p>\n'
+                f'        <draw:frame draw:name="{alt_text}" draw:style-name="Frame_Default" '
                 f'svg:x="{x_pt}" svg:y="{y_pt}" svg:width="{w_pt}" svg:height="{h_pt}" '
                 f'text:anchor-type="page" text:anchor-page-num="{page_num}">\n'
-                f'        <draw:image xlink:href="{part_name}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>\n'
-                f'      </draw:frame>'
+                f'          <draw:image xlink:href="{part_name}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>\n'
+                f'        </draw:frame>\n'
+                f'      </text:p>'
             )
         else:
             return (

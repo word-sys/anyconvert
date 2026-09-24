@@ -6,10 +6,16 @@ from abc import ABC, abstractmethod
 from enum import Enum
 import io
 from os import PathLike
+import re
 from typing import BinaryIO, Union
 
 from anyconvert.common.color import Color
 from anyconvert.ir.model import DocumentIR
+
+# XML 1.0 valid character range: #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]
+_XML_ILLEGAL_CHARS_RE = re.compile(
+    r"[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD\U00010000-\U0010FFFF]"
+)
 
 
 class ConversionMode(str, Enum):
@@ -49,9 +55,10 @@ def color_to_hex(color: Color) -> str:
 
 
 def xml_escape(text: str) -> str:
-    """Escape text content for standard XML serialization."""
+    """Escape text content for standard XML serialization and strip illegal control characters."""
+    sanitized = _XML_ILLEGAL_CHARS_RE.sub("", text)
     return (
-        text.replace("&", "&amp;")
+        sanitized.replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
         .replace('"', "&quot;")

@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 
 from anyconvert.common.color import Color
 from anyconvert.common.geometry import BoundingBox, Matrix3x3, Point
+from anyconvert.pdf.filters import decode_stream
 from anyconvert.pdf.graphics.path import VectorPath
 from anyconvert.pdf.graphics.state import GraphicsState, GraphicsStateStack, TextState
 from anyconvert.pdf.lexer import PDFLexer, Token, TokenType
@@ -783,7 +784,11 @@ class ContentInterpreter:
                 tu_obj = self._dereference(tu_val)
                 if isinstance(tu_obj, PDFStream):
                     try:
-                        cmap = CMap.parse(tu_obj.get_raw_bytes())
+                        raw_bytes = tu_obj.get_raw_bytes()
+                        filt = tu_obj.dict.get("Filter")
+                        parms = tu_obj.dict.get("DecodeParms")
+                        dec = decode_stream(raw_bytes, filt, parms)
+                        cmap = CMap.parse(dec)
                         comp_font.to_unicode_map.update(cmap.mapping)
                     except Exception:
                         pass
@@ -799,7 +804,11 @@ class ContentInterpreter:
                 ff2 = self._dereference(font_desc["FontFile2"])
                 if isinstance(ff2, PDFStream):
                     try:
-                        return SFNTFont(ff2.get_raw_bytes(), name=font_name)
+                        raw_bytes = ff2.get_raw_bytes()
+                        filt = ff2.dict.get("Filter")
+                        parms = ff2.dict.get("DecodeParms")
+                        dec = decode_stream(raw_bytes, filt, parms)
+                        return SFNTFont(dec, name=font_name)
                     except Exception:
                         pass
 
@@ -808,7 +817,11 @@ class ContentInterpreter:
                 ff1 = self._dereference(font_desc["FontFile"])
                 if isinstance(ff1, PDFStream):
                     try:
-                        return Type1Font(ff1.get_raw_bytes(), name=font_name)
+                        raw_bytes = ff1.get_raw_bytes()
+                        filt = ff1.dict.get("Filter")
+                        parms = ff1.dict.get("DecodeParms")
+                        dec = decode_stream(raw_bytes, filt, parms)
+                        return Type1Font(dec, name=font_name)
                     except Exception:
                         pass
 
@@ -850,7 +863,11 @@ class ContentInterpreter:
             tu_obj = self._dereference(fd["ToUnicode"])
             if isinstance(tu_obj, PDFStream):
                 try:
-                    cmap = CMap.parse(tu_obj.get_raw_bytes())
+                    raw_bytes = tu_obj.get_raw_bytes()
+                    filt = tu_obj.dict.get("Filter")
+                    parms = tu_obj.dict.get("DecodeParms")
+                    dec = decode_stream(raw_bytes, filt, parms)
+                    cmap = CMap.parse(dec)
                     base_font.to_unicode_map.update(cmap.mapping)
                 except Exception:
                     pass

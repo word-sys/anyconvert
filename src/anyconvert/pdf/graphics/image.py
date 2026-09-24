@@ -211,22 +211,32 @@ class PDFImage:
         if smask_ref is not None:
             smask_obj = deref(smask_ref)
             if isinstance(smask_obj, PDFStream):
-                smask_img = cls.from_stream(smask_obj, resolver=resolver)
-                _blend_smask(rgba_buffer, width, height, smask_img)
-                has_alpha = True
+                try:
+                    smask_img = cls.from_stream(smask_obj, resolver=resolver)
+                    _blend_smask(rgba_buffer, width, height, smask_img)
+                    has_alpha = True
+                except Exception:
+                    # Gracefully retain the base image if the mask cannot be decoded
+                    pass
 
         # Blend Transparency: Explicit 1-bit /Mask stream or Color Key /Mask array
         mask_ref = sdict.get("Mask")
         if mask_ref is not None:
             mask_obj = deref(mask_ref)
             if isinstance(mask_obj, PDFStream):
-                mask_img = cls.from_stream(mask_obj, resolver=resolver)
-                _blend_explicit_mask(rgba_buffer, width, height, mask_img)
-                has_alpha = True
+                try:
+                    mask_img = cls.from_stream(mask_obj, resolver=resolver)
+                    _blend_explicit_mask(rgba_buffer, width, height, mask_img)
+                    has_alpha = True
+                except Exception:
+                    pass
             elif isinstance(mask_obj, (list, PDFArray)):
-                mask_ranges = [int(deref(x)) for x in mask_obj]
-                _blend_color_key_mask(rgba_buffer, raw_rows, width, height, num_components, mask_ranges)
-                has_alpha = True
+                try:
+                    mask_ranges = [int(deref(x)) for x in mask_obj]
+                    _blend_color_key_mask(rgba_buffer, raw_rows, width, height, num_components, mask_ranges)
+                    has_alpha = True
+                except Exception:
+                    pass
 
         return cls(
             width=width,

@@ -101,17 +101,19 @@ def partition_page_flow(
             continue
 
         # 2. Known repeating headers/footers
-        if known_headers and text in known_headers:
-            headers.append(l)
-            continue
-        if known_footers and text in known_footers:
-            footers.append(l)
+        if known_headers is not None:
+            if text in known_headers:
+                headers.append(l)
+            elif known_footers is not None and text in known_footers:
+                footers.append(l)
+            else:
+                body_lines.append(l)
             continue
 
-        # 3. Position-based candidate check
-        if is_header_candidate(l, page_height, top_margin):
+        # 3. Position-based candidate check (only when cross-page repetition is not known)
+        if is_header_candidate(l, page_height, top_margin) and l.font_size <= 11.0 and len(text) < 80:
             headers.append(l)
-        elif is_footer_candidate(l, page_height, bottom_margin):
+        elif is_footer_candidate(l, page_height, bottom_margin) and l.font_size <= 11.0 and len(text) < 80:
             footers.append(l)
         else:
             body_lines.append(l)

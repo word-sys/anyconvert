@@ -9,7 +9,7 @@ Provides zero-dependency unified conversion functions:
 from __future__ import annotations
 
 import pathlib
-from typing import Any, Dict, List, Optional, Sequence, Set, Union
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from anyconvert.common.reader import ByteReader
 from anyconvert.emitters.base import BaseEmitter, ConversionMode
@@ -25,7 +25,9 @@ from anyconvert.exceptions import (
 )
 from anyconvert.ir.builder import DocumentIRBuilder
 from anyconvert.ir.model import DocumentIR, DocumentPage
-from anyconvert.pdf.content.interpreter import ContentInterpreter
+from anyconvert.layout.cluster import cluster_characters_to_words, cluster_words_to_lines
+from anyconvert.layout.flow import detect_repeating_headers_footers
+from anyconvert.pdf.content.interpreter import ContentInterpreter, InterpreterOutput
 from anyconvert.pdf.document import PDFDocument
 from anyconvert.pdf.parser import PDFArray, PDFDict, PDFIndirectRef
 
@@ -103,6 +105,9 @@ def pdf_to_document_ir(
     ir_builder = DocumentIRBuilder(resolver=doc.resolver)
     pages: List[DocumentPage] = []
 
+    interpreted_pages: List[Tuple[InterpreterOutput, float, float]] = []
+    pages_lines: List[List[Any]] = []
+
     for page_idx in range(doc.page_count):
         page_dict = doc.get_page(page_idx)
         x0, y0, x1, y1 = doc.get_page_box(page_dict)
@@ -121,13 +126,25 @@ def pdf_to_document_ir(
         # Interpret content streams
         interpreter = ContentInterpreter(resources=page_res, resolver=doc.resolver)
         output = interpreter.interpret(content_bytes)
+        interpreted_pages.append((output, page_w, page_h))
 
-        # Build typed DocumentPage
+        words = cluster_characters_to_words(output.text_elements, page_height=page_h)
+        lines = cluster_words_to_lines(words)
+        pages_lines.append(lines)
+
+    known_headers: Set[str] = set()
+    known_footers: Set[str] = set()
+    if len(pages_lines) > 1:
+        known_headers, known_footers = detect_repeating_headers_footers(pages_lines)
+
+    for page_idx, (output, page_w, page_h) in enumerate(interpreted_pages):
         built_page = ir_builder.build_page(
             output=output,
             page_width=page_w,
             page_height=page_h,
             page_number=page_idx + 1,
+            known_headers=known_headers,
+            known_footers=known_footers,
         )
         pages.append(built_page)
 

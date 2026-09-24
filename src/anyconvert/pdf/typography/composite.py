@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from anyconvert.common.geometry import BoundingBox
 from anyconvert.exceptions import PDFFontError
+from anyconvert.pdf.filters import decode_stream
 from anyconvert.pdf.parser import PDFArray, PDFDict, PDFIndirectRef, PDFName, PDFStream
 from anyconvert.pdf.typography.cff import CFFFont
 from anyconvert.pdf.typography.font import BaseFont, FontMetrics
@@ -147,7 +148,13 @@ class CompositeFont(BaseFont):
         if cid_to_gid is not None:
             cg_obj = self._dereference(cid_to_gid)
             if isinstance(cg_obj, PDFStream):
-                self._cid_to_gid_map = bytes(cg_obj.data)
+                try:
+                    raw_bytes = cg_obj.get_raw_bytes()
+                    filt = cg_obj.dict.get("Filter")
+                    parms = cg_obj.dict.get("DecodeParms")
+                    self._cid_to_gid_map = decode_stream(raw_bytes, filt, parms)
+                except Exception:
+                    self._cid_to_gid_map = bytes(cg_obj.data)
             elif isinstance(cg_obj, (bytes, bytearray)):
                 self._cid_to_gid_map = bytes(cg_obj)
 
@@ -317,7 +324,11 @@ class CompositeFont(BaseFont):
             ff2_obj = self._dereference(font_file2)
             if isinstance(ff2_obj, PDFStream) and len(ff2_obj.data) > 0:
                 try:
-                    self._embedded_font = SFNTFont(bytes(ff2_obj.data), name=self.name)
+                    raw_bytes = ff2_obj.get_raw_bytes()
+                    filt = ff2_obj.dict.get("Filter")
+                    parms = ff2_obj.dict.get("DecodeParms")
+                    dec = decode_stream(raw_bytes, filt, parms)
+                    self._embedded_font = SFNTFont(dec, name=self.name)
                 except Exception:
                     pass
 
@@ -326,11 +337,15 @@ class CompositeFont(BaseFont):
             ff3_obj = self._dereference(font_file3)
             if isinstance(ff3_obj, PDFStream) and len(ff3_obj.data) > 0:
                 try:
+                    raw_bytes = ff3_obj.get_raw_bytes()
+                    filt = ff3_obj.dict.get("Filter")
+                    parms = ff3_obj.dict.get("DecodeParms")
+                    dec = decode_stream(raw_bytes, filt, parms)
                     subtype = ff3_obj.dict.get("Subtype")
                     if subtype in ("CIDFontType0C", PDFName("CIDFontType0C"), "Type1C", PDFName("Type1C")):
-                        self._embedded_font = CFFFont(bytes(ff3_obj.data), name=self.name)
+                        self._embedded_font = CFFFont(dec, name=self.name)
                     else:
-                        self._embedded_font = SFNTFont(bytes(ff3_obj.data), name=self.name)
+                        self._embedded_font = SFNTFont(dec, name=self.name)
                 except Exception:
                     pass
 

@@ -170,6 +170,17 @@ def detect_tables_from_vectors(
                     return True
         return False
 
+    # Count physical intersections between horizontal and vertical rulings
+    intersections = 0
+    for hy, hx0, hx1 in h_lines:
+        for vx, vy0, vy1 in v_lines:
+            if (hx0 - tolerance <= vx <= hx1 + tolerance) and (vy0 - tolerance <= hy <= vy1 + tolerance):
+                intersections += 1
+
+    # A minimal 1-cell grid table requires at least 4 corner intersections (2 horizontal x 2 vertical lines)
+    if intersections < 4:
+        return []
+
     # Check that at least an outer border exists
     top_y = grid_y[0]
     bottom_y = grid_y[-1]
@@ -181,7 +192,8 @@ def detect_tables_from_vectors(
     has_left = has_v_segment(left_x, top_y, bottom_y)
     has_right = has_v_segment(right_x, top_y, bottom_y)
 
-    if not (has_top or has_bottom or has_left or has_right):
+    borders_count = sum(bool(b) for b in (has_top, has_bottom, has_left, has_right))
+    if borders_count < 2 or not ((has_top and has_bottom) or (has_left and has_right) or borders_count >= 3):
         # Weak ruling evidence, not a bordered table
         return []
 
