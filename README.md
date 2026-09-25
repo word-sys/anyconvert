@@ -2,6 +2,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPLv3+-blue.svg)](LICENSE)
+[![Downloads](https://static.pepy.tech/badge/anyconvert)](https://pepy.tech/projects/anyconvert)
 
 **Python document conversion engine**
 
@@ -37,6 +38,14 @@
 | **Plaintext / Markdown** | `.txt` | Formatted Markdown text | 2D character-grid layout | UTF-8 Plaintext |
 
 ---
+
+## Known Issues
+- **ODT & PPTX Export Issues**:
+  - **PDF Original Position**: If PDF itself is vertical, ODP & PPTX export will be broken due to horizontal size of slides.
+  - **Known Bug**: Shapes or pen markups aren't supported, it will not shown on your presentation.
+  - **Beta Stage**: Project now at v0.1.0 Beta stage, only DOCX and ODT seems to be fully function as wanted.
+  - **Design Flaw**: Project designed to be a PDF to XXX document convert library for [word-sys's PDF Editor](https://github.com/word-sys/word-sys-pdf-editor) and mainly designed for DOCX & ODT export, expecting a fully 1:1 export to PPTX & ODP is not possible, for now.
+
 
 ## Installation
 
