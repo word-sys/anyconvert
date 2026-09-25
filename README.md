@@ -2,7 +2,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPLv3+-blue.svg)](LICENSE)
-[![Downloads](https://static.pepy.tech/badge/anyconvert)](https://pepy.tech/projects/anyconvert)
+[![Downloads](https://img.shields.io/pepy/dt/anyconvert)](https://pepy.tech/projects/anyconvert)
 
 **Python document conversion engine**
 
