@@ -46,6 +46,7 @@
   - **Beta Stage**: Project now at v0.1.0 Beta stage, only DOCX and ODT seems to be fully function as wanted.
   - **Design Flaw**: Project designed to be a PDF to XXX document convert library for [word-sys's PDF Editor](https://github.com/word-sys/word-sys-pdf-editor) and mainly designed for DOCX & ODT export, expecting a fully 1:1 export to PPTX & ODP is not possible, for now.
 
+---
 
 ## Installation
 
