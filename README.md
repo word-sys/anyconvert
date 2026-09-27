@@ -229,6 +229,12 @@ python3 -m mypy --strict src/ tests/
 
 ---
 
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our architectural principles, development setup, code of conduct, and pull request guidelines.
+
+---
+
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE) for details.
