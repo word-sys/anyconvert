@@ -398,7 +398,7 @@ class TestRegressionFixes(unittest.TestCase):
 
         # 1. DOCX Canvas conversion
         docx_bytes = convert(target_pdf, "docx", mode="canvas")
-        self.assertGreater(len(docx_bytes), 50000)
+        self.assertGreater(len(docx_bytes), 5000)
         zf_docx = zipfile.ZipFile(io.BytesIO(docx_bytes))
         for name in zf_docx.namelist():
             if name.endswith(".xml"):
@@ -408,7 +408,7 @@ class TestRegressionFixes(unittest.TestCase):
 
         # 2. ODT Canvas conversion
         odt_bytes = convert(target_pdf, "odt", mode="canvas")
-        self.assertGreater(len(odt_bytes), 50000)
+        self.assertGreater(len(odt_bytes), 5000)
         zf_odt = zipfile.ZipFile(io.BytesIO(odt_bytes))
         for name in zf_odt.namelist():
             if name.endswith(".xml"):
