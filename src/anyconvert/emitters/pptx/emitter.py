@@ -234,6 +234,7 @@ class PptxEmitter(BaseEmitter):
                 shape_elements.append(shape_xml)
                 shape_id += 1
 
+        shapes_joined = "\n".join(shape_elements)
         xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
        xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -253,7 +254,7 @@ class PptxEmitter(BaseEmitter):
           <a:chExt cx="0" cy="0"/>
         </a:xfrm>
       </p:grpSpPr>
-{"\n".join(shape_elements)}
+{shapes_joined}
     </p:spTree>
   </p:cSld>
   <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
