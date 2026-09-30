@@ -178,6 +178,19 @@ class PDFImage:
         if decoded_bytes.startswith(b"\xFF\xD8\xFF"):
             is_dct = True
 
+        if is_dct:
+            return cls(
+                width=width,
+                height=height,
+                color_space_name="DeviceRGB",
+                bits_per_component=bpc,
+                rgba_pixels=b"",
+                has_alpha=False,
+                format="jpeg",
+                raw_data=decoded_bytes,
+                stream=stream,
+            )
+
         # Resolve ColorSpace
         cs_obj = deref(sdict.get("ColorSpace")) if not is_mask else None
         color_space_name, num_components, cs_extra = _resolve_color_space(
@@ -216,7 +229,6 @@ class PDFImage:
                     _blend_smask(rgba_buffer, width, height, smask_img)
                     has_alpha = True
                 except Exception:
-                    # Gracefully retain the base image if the mask cannot be decoded
                     pass
 
         # Blend Transparency: Explicit 1-bit /Mask stream or Color Key /Mask array
@@ -245,10 +257,11 @@ class PDFImage:
             bits_per_component=bpc,
             rgba_pixels=bytes(rgba_buffer),
             has_alpha=has_alpha,
-            format="jpeg" if is_dct else "png",
+            format="png",
             raw_data=decoded_bytes,
             stream=stream,
         )
+
 
 
 def _resolve_color_space(
