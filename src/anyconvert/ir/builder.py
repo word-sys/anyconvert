@@ -26,6 +26,7 @@ from anyconvert.ir.model import (
     TableRow,
     TextRun,
     VectorBlock,
+    detect_image_format,
 )
 from anyconvert.ir.validator import validate_document_ir
 from anyconvert.layout.cluster import (
@@ -355,21 +356,35 @@ class DocumentIRBuilder:
         norm_images: List[ImageBlock] = []
         for im in output.image_elements:
             im_box = normalize_bbox_pdf_to_doc(im.bbox, page_height)
-            png_data: bytes = b""
+            img_data: bytes = b""
             fmt = "png"
             if im.stream is not None:
                 try:
                     pdf_img = PDFImage.from_stream(im.stream, resolver=self._resolver)
-                    png_data = pdf_img.to_png()
-                    fmt = pdf_img.format
+                    if (
+                        pdf_img.format in ("jpeg", "jpg")
+                        and pdf_img.raw_data.startswith(b"\xFF\xD8\xFF")
+                        and not pdf_img.has_alpha
+                    ):
+                        img_data = pdf_img.raw_data
+                        fmt = "jpeg"
+                    else:
+                        img_data = pdf_img.to_png()
+                        fmt = "png"
                 except Exception:
-                    png_data = _create_fallback_png()
+                    img_data = _create_fallback_png()
+                    fmt = "png"
             else:
-                png_data = _create_fallback_png()
+                img_data = _create_fallback_png()
+                fmt = "png"
+
+            detected = detect_image_format(img_data)
+            if detected != "unknown":
+                fmt = detected
 
             norm_images.append(
                 ImageBlock(
-                    png_bytes=png_data,
+                    png_bytes=img_data,
                     bbox=im_box,
                     alt_text=im.name,
                     format=fmt,

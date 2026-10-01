@@ -18,6 +18,7 @@ from anyconvert.ir.model import (
     TableRow,
     TextRun,
     VectorBlock,
+    detect_image_format,
 )
 from anyconvert.ir.validator import validate_document_ir
 
@@ -38,4 +39,5 @@ __all__ = [
     "DocumentIR",
     "DocumentIRBuilder",
     "validate_document_ir",
+    "detect_image_format",
 ]

@@ -115,15 +115,66 @@ class Table:
     bbox: Optional[BoundingBox] = None
 
 
+def detect_image_format(data: bytes) -> str:
+    """Detect image format from binary magic bytes.
+
+    Returns:
+        One of 'png', 'jpeg', 'webp', 'gif', 'bmp', 'tiff', 'svg', or 'unknown'.
+    """
+    if not data:
+        return "unknown"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data.startswith(b"\xFF\xD8\xFF"):
+        return "jpeg"
+    if data.startswith(b"RIFF") and len(data) >= 12 and data[8:12] == b"WEBP":
+        return "webp"
+    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+        return "gif"
+    if data.startswith(b"BM"):
+        return "bmp"
+    if data.startswith(b"II*\x00") or data.startswith(b"MM\x00*"):
+        return "tiff"
+    sample = data[:500].lstrip()
+    if sample.startswith(b"<svg") or (sample.startswith(b"<?xml") and b"<svg" in sample):
+        return "svg"
+    return "unknown"
+
+
 @dataclass(slots=True)
 class ImageBlock:
-    """A raster image block embedded in presentation or flow layout."""
+    """A raster or vector image block embedded in presentation or flow layout."""
 
     png_bytes: bytes
     bbox: BoundingBox
     alt_text: str = ""
     rotation: float = 0.0
     format: str = "png"
+
+    @property
+    def image_bytes(self) -> bytes:
+        """Alias for png_bytes providing format-agnostic binary access."""
+        return self.png_bytes
+
+    @property
+    def mime_type(self) -> str:
+        """Return the standard MIME type for this image block."""
+        fmt = self.format.lower()
+        if fmt == "png":
+            return "image/png"
+        if fmt in ("jpeg", "jpg"):
+            return "image/jpeg"
+        if fmt == "webp":
+            return "image/webp"
+        if fmt == "gif":
+            return "image/gif"
+        if fmt == "bmp":
+            return "image/bmp"
+        if fmt == "tiff":
+            return "image/tiff"
+        if fmt == "svg":
+            return "image/svg+xml"
+        return "application/octet-stream"
 
 
 @dataclass(slots=True)
@@ -187,4 +238,5 @@ __all__ = [
     "PageHeaderFooter",
     "DocumentPage",
     "DocumentIR",
+    "detect_image_format",
 ]

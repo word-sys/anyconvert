@@ -20,6 +20,7 @@ from anyconvert.ir.model import (
     TableRow,
     TextRun,
     VectorBlock,
+    detect_image_format,
 )
 from anyconvert.utils.png import PNG_SIGNATURE
 
@@ -187,12 +188,23 @@ def _validate_image(img: ImageBlock, page_num: int) -> None:
     if not img.png_bytes:
         raise IRValidationError(f"Page {page_num} ImageBlock has empty png_bytes")
 
+    detected = detect_image_format(img.png_bytes)
+
+    # Gracefully synchronize format if a known valid image payload is detected
+    if detected != "unknown" and img.format != detected:
+        img.format = detected
+
     if img.format == "png":
         if not img.png_bytes.startswith(PNG_SIGNATURE):
             raise IRValidationError(f"Page {page_num} ImageBlock has invalid PNG signature")
-    elif img.format == "jpeg":
+    elif img.format in ("jpeg", "jpg"):
         if not img.png_bytes.startswith(b"\xFF\xD8\xFF"):
             raise IRValidationError(f"Page {page_num} ImageBlock has invalid JPEG signature")
+    elif img.format == "webp":
+        if not (img.png_bytes.startswith(b"RIFF") and len(img.png_bytes) >= 12 and img.png_bytes[8:12] == b"WEBP"):
+            raise IRValidationError(f"Page {page_num} ImageBlock has invalid WebP signature")
+    elif detected == "unknown":
+        raise IRValidationError(f"Page {page_num} ImageBlock has unknown or invalid image signature")
 
     if img.bbox.width <= 0.0 or img.bbox.height <= 0.0:
         raise IRValidationError(
