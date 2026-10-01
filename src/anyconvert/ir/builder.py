@@ -355,30 +355,26 @@ class DocumentIRBuilder:
         norm_images: List[ImageBlock] = []
         for im in output.image_elements:
             im_box = normalize_bbox_pdf_to_doc(im.bbox, page_height)
-            img_data: bytes = b""
+            png_data: bytes = b""
             fmt = "png"
             if im.stream is not None:
                 try:
                     pdf_img = PDFImage.from_stream(im.stream, resolver=self._resolver)
-                    if pdf_img.format == "jpeg":
-                        img_data = pdf_img.raw_data
-                        fmt = "jpeg"
-                    else:
-                        img_data = pdf_img.to_png()
+                    png_data = pdf_img.to_png()
+                    fmt = pdf_img.format
                 except Exception:
-                    img_data = _create_fallback_png()
+                    png_data = _create_fallback_png()
             else:
-                img_data = _create_fallback_png()
+                png_data = _create_fallback_png()
 
             norm_images.append(
                 ImageBlock(
-                    png_bytes=img_data,
+                    png_bytes=png_data,
                     bbox=im_box,
                     alt_text=im.name,
                     format=fmt,
                 )
             )
-
 
         # 5. Recursive XY-Cut on remaining text lines
         xy_tree = recursive_xy_cut(free_lines)

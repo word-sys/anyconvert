@@ -38,7 +38,6 @@ from anyconvert.ir.model import (
 from anyconvert.packaging.opc import (
     CT_CORE_PROPERTIES,
     CT_EXTENDED_PROPERTIES,
-    CT_JPEG,
     CT_PNG,
     CT_WORDPROCESSING_DOCUMENT,
     CT_WORDPROCESSING_FONTTABLE,
@@ -490,15 +489,14 @@ class DocxEmitter(BaseEmitter):
         image_counter_ref: List[int],
         mode: ConversionMode,
     ) -> str:
+        """Embed raster image and render DrawingML element."""
         img_num = image_counter_ref[0]
         image_counter_ref[0] += 1
 
-        ext = "jpeg" if img.format == "jpeg" else "png"
-        ct = CT_JPEG if img.format == "jpeg" else CT_PNG
-        img_part_name = f"word/media/image{img_num}.{ext}"
-        rel_target = f"media/image{img_num}.{ext}"
+        img_part_name = f"word/media/image{img_num}.png"
+        rel_target = f"media/image{img_num}.png"
 
-        pkg.add_part(img_part_name, img.png_bytes, content_type=ct)
+        pkg.add_part(img_part_name, img.png_bytes, content_type=CT_PNG)
 
         rel_id = f"rIdImg{img_num}"
         doc_rels[rel_target] = rel_id
