@@ -5,13 +5,24 @@ from __future__ import annotations
 import time
 import pytest
 
+from anyconvert.api import convert
 from anyconvert.common.color import Color
 from anyconvert.common.geometry import BoundingBox, Matrix3x3, Point
 from anyconvert.emitters.base import ConversionMode
 from anyconvert.emitters.docx import DocxEmitter
+from anyconvert.emitters.odp import OdpEmitter
+from anyconvert.emitters.odt import OdtEmitter
 from anyconvert.emitters.pptx import PptxEmitter
+from anyconvert.emitters.txt import TxtEmitter
 from anyconvert.exceptions import IRValidationError
 from anyconvert.ir.builder import DocumentIRBuilder
+from anyconvert.packaging.odf import (
+    MEDIA_TYPE_IMAGE_GIF,
+    MEDIA_TYPE_IMAGE_JPEG,
+    MEDIA_TYPE_IMAGE_PNG,
+    MEDIA_TYPE_IMAGE_SVG,
+    ODFPackage,
+)
 from anyconvert.packaging.opc import OPCPackage
 from anyconvert.ir.model import (
     BlockNode,
@@ -571,4 +582,188 @@ def test_end_to_end_pdf_to_docx_pptx_lossless_jpeg_passthrough() -> None:
     pptx_pkg = OPCPackage.parse(pptx_bytes)
     assert pptx_pkg.has_part("ppt/media/image1.jpeg")
     assert pptx_pkg.get_part("ppt/media/image1.jpeg").content == JPEG_MAGIC_SAMPLE
+
+
+def test_odt_emitter_embeds_native_jpeg_flow() -> None:
+    """Test OdtEmitter embeds native JPEG in Flow mode without PNG transcoding."""
+    img_block = ImageBlock(
+        image_bytes=JPEG_MAGIC_SAMPLE,
+        format="jpeg",
+        bbox=BoundingBox(50, 50, 150, 150),
+    )
+    page = DocumentPage(1, 612.0, 792.0, blocks=[img_block])
+    doc_ir = DocumentIR(pages=[page])
+
+    odt_bytes = OdtEmitter().emit(doc_ir, mode=ConversionMode.FLOW)
+    pkg = ODFPackage.parse(odt_bytes)
+
+    assert pkg.has_part("Pictures/image1.jpeg")
+    assert not pkg.has_part("Pictures/image1.png")
+    assert pkg.get_part("Pictures/image1.jpeg").content == JPEG_MAGIC_SAMPLE
+    assert pkg.get_part("Pictures/image1.jpeg").media_type == MEDIA_TYPE_IMAGE_JPEG
+
+    content_xml = pkg.get_part("content.xml").content.decode("utf-8")
+    assert 'xlink:href="Pictures/image1.jpeg"' in content_xml
+
+    manifest_xml = pkg.build_manifest_xml().decode("utf-8")
+    assert 'manifest:full-path="Pictures/image1.jpeg"' in manifest_xml
+    assert f'manifest:media-type="{MEDIA_TYPE_IMAGE_JPEG}"' in manifest_xml
+
+
+def test_odt_emitter_embeds_native_jpeg_canvas() -> None:
+    """Test OdtEmitter embeds native JPEG in Canvas mode without PNG transcoding."""
+    img_block = ImageBlock(
+        image_bytes=JPEG_MAGIC_SAMPLE,
+        format="jpeg",
+        bbox=BoundingBox(50, 50, 150, 150),
+    )
+    page = DocumentPage(1, 612.0, 792.0, blocks=[img_block])
+    doc_ir = DocumentIR(pages=[page])
+
+    odt_bytes = OdtEmitter().emit(doc_ir, mode=ConversionMode.CANVAS)
+    pkg = ODFPackage.parse(odt_bytes)
+
+    assert pkg.has_part("Pictures/image1.jpeg")
+    assert not pkg.has_part("Pictures/image1.png")
+    assert pkg.get_part("Pictures/image1.jpeg").content == JPEG_MAGIC_SAMPLE
+    assert pkg.get_part("Pictures/image1.jpeg").media_type == MEDIA_TYPE_IMAGE_JPEG
+
+    content_xml = pkg.get_part("content.xml").content.decode("utf-8")
+    assert 'xlink:href="Pictures/image1.jpeg"' in content_xml
+
+
+def test_odt_emitter_multi_format_images() -> None:
+    """Test OdtEmitter handles heterogeneous image formats concurrently."""
+    png_data = encode_rgb_png(2, 2, b"\xFF\x00\x00\x00\xFF\x00\x00\x00\xFF\xFF\xFF\xFF")
+    blocks: list[BlockNode] = [
+        ImageBlock(image_bytes=JPEG_MAGIC_SAMPLE, format="jpeg", bbox=BoundingBox(0, 0, 50, 50)),
+        ImageBlock(image_bytes=png_data, format="png", bbox=BoundingBox(0, 50, 50, 100)),
+        ImageBlock(image_bytes=GIF89A_SAMPLE, format="gif", bbox=BoundingBox(0, 100, 50, 150)),
+        ImageBlock(image_bytes=SVG_SAMPLE, format="svg", bbox=BoundingBox(0, 150, 50, 200)),
+    ]
+    page = DocumentPage(1, 612.0, 792.0, blocks=blocks)
+    doc_ir = DocumentIR(pages=[page])
+
+    odt_bytes = OdtEmitter().emit(doc_ir, mode=ConversionMode.FLOW)
+    pkg = ODFPackage.parse(odt_bytes)
+
+    assert pkg.has_part("Pictures/image1.jpeg")
+    assert pkg.has_part("Pictures/image2.png")
+    assert pkg.has_part("Pictures/image3.gif")
+    assert pkg.has_part("Pictures/image4.svg")
+
+    assert pkg.get_part("Pictures/image1.jpeg").media_type == MEDIA_TYPE_IMAGE_JPEG
+    assert pkg.get_part("Pictures/image2.png").media_type == MEDIA_TYPE_IMAGE_PNG
+    assert pkg.get_part("Pictures/image3.gif").media_type == MEDIA_TYPE_IMAGE_GIF
+    assert pkg.get_part("Pictures/image4.svg").media_type == MEDIA_TYPE_IMAGE_SVG
+
+
+def test_odp_emitter_embeds_native_jpeg() -> None:
+    """Test OdpEmitter embeds native JPEG without PNG transcoding."""
+    img_block = ImageBlock(
+        image_bytes=JPEG_MAGIC_SAMPLE,
+        format="jpeg",
+        bbox=BoundingBox(50, 50, 200, 150),
+    )
+    page = DocumentPage(1, 720.0, 540.0, blocks=[img_block])
+    doc_ir = DocumentIR(pages=[page])
+
+    odp_bytes = OdpEmitter().emit(doc_ir)
+    pkg = ODFPackage.parse(odp_bytes)
+
+    assert pkg.has_part("Pictures/image1.jpeg")
+    assert not pkg.has_part("Pictures/image1.png")
+    assert pkg.get_part("Pictures/image1.jpeg").content == JPEG_MAGIC_SAMPLE
+    assert pkg.get_part("Pictures/image1.jpeg").media_type == MEDIA_TYPE_IMAGE_JPEG
+
+    content_xml = pkg.get_part("content.xml").content.decode("utf-8")
+    assert 'xlink:href="Pictures/image1.jpeg"' in content_xml
+
+
+def test_odp_emitter_multi_format_images() -> None:
+    """Test OdpEmitter embeds heterogeneous image formats on a presentation slide."""
+    png_data = encode_rgb_png(2, 2, b"\xFF\x00\x00\x00\xFF\x00\x00\x00\xFF\xFF\xFF\xFF")
+    blocks: list[BlockNode] = [
+        ImageBlock(image_bytes=JPEG_MAGIC_SAMPLE, format="jpeg", bbox=BoundingBox(10, 10, 100, 100)),
+        ImageBlock(image_bytes=png_data, format="png", bbox=BoundingBox(120, 10, 210, 100)),
+        ImageBlock(image_bytes=SVG_SAMPLE, format="svg", bbox=BoundingBox(230, 10, 320, 100)),
+    ]
+    page = DocumentPage(1, 720.0, 540.0, blocks=blocks)
+    doc_ir = DocumentIR(pages=[page])
+
+    odp_bytes = OdpEmitter().emit(doc_ir)
+    pkg = ODFPackage.parse(odp_bytes)
+
+    assert pkg.has_part("Pictures/image1.jpeg")
+    assert pkg.has_part("Pictures/image2.png")
+    assert pkg.has_part("Pictures/image3.svg")
+
+    assert pkg.get_part("Pictures/image1.jpeg").media_type == MEDIA_TYPE_IMAGE_JPEG
+    assert pkg.get_part("Pictures/image2.png").media_type == MEDIA_TYPE_IMAGE_PNG
+    assert pkg.get_part("Pictures/image3.svg").media_type == MEDIA_TYPE_IMAGE_SVG
+
+
+def test_end_to_end_pdf_to_all_5_formats_lossless_jpeg_passthrough() -> None:
+    """Test end-to-end PDF stream -> IR -> all 5 target formats (DOCX, PPTX, ODT, ODP, TXT)."""
+    stream_dict = PDFDict({
+        "Type": PDFName("XObject"),
+        "Subtype": PDFName("Image"),
+        "Width": 200,
+        "Height": 150,
+        "BitsPerComponent": 8,
+        "ColorSpace": PDFName("DeviceRGB"),
+        "Filter": PDFName("DCTDecode"),
+    })
+    jpeg_stream = PDFStream(stream_dict, memoryview(JPEG_MAGIC_SAMPLE))
+
+    im_el = ImageElement(
+        name="Im1",
+        ctm=Matrix3x3.identity(),
+        bbox=BoundingBox(50, 400, 250, 600),
+        stream=jpeg_stream,
+    )
+    interp_output = InterpreterOutput(
+        text_elements=[],
+        vector_elements=[],
+        image_elements=[im_el],
+    )
+    builder = DocumentIRBuilder()
+    doc_page = builder.build_page(
+        output=interp_output,
+        page_width=612.0,
+        page_height=792.0,
+        page_number=1,
+    )
+    doc_ir = builder.build_document([doc_page])
+
+    validate_document_ir(doc_ir)
+
+    # 1. DOCX
+    docx_bytes = convert(doc_ir, "docx")
+    docx_pkg = OPCPackage.parse(docx_bytes)
+    assert docx_pkg.has_part("word/media/image1.jpeg")
+    assert docx_pkg.get_part("word/media/image1.jpeg").content == JPEG_MAGIC_SAMPLE
+
+    # 2. PPTX
+    pptx_bytes = convert(doc_ir, "pptx")
+    pptx_pkg = OPCPackage.parse(pptx_bytes)
+    assert pptx_pkg.has_part("ppt/media/image1.jpeg")
+    assert pptx_pkg.get_part("ppt/media/image1.jpeg").content == JPEG_MAGIC_SAMPLE
+
+    # 3. ODT
+    odt_bytes = convert(doc_ir, "odt")
+    odt_pkg = ODFPackage.parse(odt_bytes)
+    assert odt_pkg.has_part("Pictures/image1.jpeg")
+    assert odt_pkg.get_part("Pictures/image1.jpeg").content == JPEG_MAGIC_SAMPLE
+
+    # 4. ODP
+    odp_bytes = convert(doc_ir, "odp")
+    odp_pkg = ODFPackage.parse(odp_bytes)
+    assert odp_pkg.has_part("Pictures/image1.jpeg")
+    assert odp_pkg.get_part("Pictures/image1.jpeg").content == JPEG_MAGIC_SAMPLE
+
+    # 5. TXT
+    txt_bytes = convert(doc_ir, "txt")
+    txt_str = txt_bytes.decode("utf-8")
+    assert "image_1.jpeg" in txt_str
 

@@ -70,14 +70,14 @@ def _get_emitter(output_format: str) -> BaseEmitter:
 
 
 def pdf_to_document_ir(
-    source: Union[str, pathlib.Path, bytes, bytearray, memoryview, ByteReader],
+    source: Union[str, pathlib.Path, bytes, bytearray, memoryview, ByteReader, DocumentIR],
     password: str = "",
     mode: Union[ConversionMode, str] = ConversionMode.FLOW,
 ) -> DocumentIR:
     """Parse a PDF document source into a fully validated DocumentIR hierarchy.
 
     Args:
-        source: File path, Path, raw bytes, or ByteReader.
+        source: File path, Path, raw bytes, ByteReader, or existing DocumentIR.
         password: Optional decryption password for encrypted PDFs.
         mode: Layout conversion mode (ConversionMode.FLOW or ConversionMode.CANVAS).
 
@@ -88,6 +88,9 @@ def pdf_to_document_ir(
         PDFSyntaxError: If the PDF structure is corrupted or contains no pages.
         PDFPasswordRequiredError: If the document is password-protected and an incorrect or empty password was given.
     """
+    if isinstance(source, DocumentIR):
+        return source
+
     conv_mode = _resolve_conversion_mode(mode)
     reader: ByteReader
     if isinstance(source, (str, pathlib.Path)):
@@ -157,7 +160,7 @@ def pdf_to_document_ir(
 
 
 def convert(
-    input_path: Union[str, pathlib.Path, bytes, bytearray, memoryview, ByteReader],
+    input_path: Union[str, pathlib.Path, bytes, bytearray, memoryview, ByteReader, DocumentIR],
     output_format: str = "docx",
     output_path: Optional[Union[str, pathlib.Path]] = None,
     mode: Union[ConversionMode, str] = ConversionMode.FLOW,

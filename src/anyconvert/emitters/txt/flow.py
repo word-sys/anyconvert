@@ -188,7 +188,8 @@ class TxtFlowEmitter(BaseEmitter):
         idx = image_counter[0]
         image_counter[0] += 1
         alt = img.alt_text or f"Image_{idx}"
-        return f"![{alt}](image_{idx}.png)"
+        ext = img.file_extension
+        return f"![{alt}](image_{idx}{ext})"
 
 
 __all__ = ["TxtFlowEmitter"]

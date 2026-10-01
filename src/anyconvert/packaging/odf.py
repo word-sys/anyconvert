@@ -44,6 +44,8 @@ MEDIA_TYPE_IMAGE_PNG = "image/png"
 MEDIA_TYPE_IMAGE_JPEG = "image/jpeg"
 MEDIA_TYPE_IMAGE_GIF = "image/gif"
 MEDIA_TYPE_IMAGE_SVG = "image/svg+xml"
+MEDIA_TYPE_IMAGE_TIFF = "image/tiff"
+MEDIA_TYPE_IMAGE_WEBP = "image/webp"
 
 
 # ==============================================================================
@@ -409,6 +411,8 @@ __all__ = [
     "MEDIA_TYPE_IMAGE_JPEG",
     "MEDIA_TYPE_IMAGE_GIF",
     "MEDIA_TYPE_IMAGE_SVG",
+    "MEDIA_TYPE_IMAGE_TIFF",
+    "MEDIA_TYPE_IMAGE_WEBP",
     "normalize_odf_part_name",
     "ODFPart",
     "ODFPackage",

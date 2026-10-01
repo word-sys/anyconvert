@@ -31,7 +31,12 @@ from anyconvert.ir.model import (
     VectorBlock,
 )
 from anyconvert.packaging.odf import (
+    MEDIA_TYPE_IMAGE_GIF,
+    MEDIA_TYPE_IMAGE_JPEG,
     MEDIA_TYPE_IMAGE_PNG,
+    MEDIA_TYPE_IMAGE_SVG,
+    MEDIA_TYPE_IMAGE_TIFF,
+    MEDIA_TYPE_IMAGE_WEBP,
     MEDIA_TYPE_TEXT_XML,
     MIMETYPE_ODT,
     ODFPackage,
@@ -513,8 +518,23 @@ class OdtEmitter(BaseEmitter):
         idx = image_counter[0]
         image_counter[0] += 1
 
-        part_name = f"Pictures/image{idx}.png"
-        pkg.add_part(part_name, img.png_bytes, media_type=MEDIA_TYPE_IMAGE_PNG)
+        ext = img.file_extension
+        fmt = img.format.lower()
+        if fmt in ("jpeg", "jpg"):
+            media_type = MEDIA_TYPE_IMAGE_JPEG
+        elif fmt == "gif":
+            media_type = MEDIA_TYPE_IMAGE_GIF
+        elif fmt == "tiff":
+            media_type = MEDIA_TYPE_IMAGE_TIFF
+        elif fmt == "svg":
+            media_type = MEDIA_TYPE_IMAGE_SVG
+        elif fmt == "webp":
+            media_type = MEDIA_TYPE_IMAGE_WEBP
+        else:
+            media_type = MEDIA_TYPE_IMAGE_PNG
+
+        part_name = f"Pictures/image{idx}{ext}"
+        pkg.add_part(part_name, img.image_bytes, media_type=media_type)
 
         alt_text = xml_escape(img.alt_text or f"Image_{idx}")
         w_pt = f"{img.bbox.width:.1f}pt"
