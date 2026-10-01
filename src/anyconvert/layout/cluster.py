@@ -69,14 +69,14 @@ class TextLine:
 def cluster_characters_to_words(
     elements: Sequence[TextElement],
     page_height: Optional[float] = None,
-    space_width_factor: float = 0.28,
+    space_width_factor: float = 0.20,
 ) -> List[TextWord]:
     """Cluster raw text elements into words using geometric adjacency and font metrics.
 
     Args:
         elements: Sequence of TextElement objects from the content interpreter.
         page_height: If provided, transforms PDF coordinates (bottom-left) to document space (top-left).
-        space_width_factor: Threshold factor of font size determining word breaks (default 0.28).
+        space_width_factor: Threshold factor of font size determining word breaks (default 0.20).
 
     Returns:
         List of TextWord objects ordered by reading position.

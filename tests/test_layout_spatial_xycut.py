@@ -220,6 +220,30 @@ def test_cluster_style_change_breaks_word() -> None:
     assert words[1].is_bold is False
 
 
+def test_cluster_characters_to_words_breaks_on_standard_space() -> None:
+    """Test words are not merged across standard spaces."""
+    e1 = TextElement(
+        text="Hello",
+        bbox=BoundingBox(50.0, 100.0, 80.0, 112.0),
+        origin=Point(50.0, 100.0),
+        font_name="Helvetica",
+        font_size=12.0,
+        color=Color.black(),
+    )
+    e2 = TextElement(
+        text="World",
+        bbox=BoundingBox(83.5, 100.0, 113.5, 112.0),
+        origin=Point(83.5, 100.0),
+        font_name="Helvetica",
+        font_size=12.0,
+        color=Color.black(),
+    )
+    words = cluster_characters_to_words([e1, e2])
+    assert len(words) == 2
+    assert words[0].text == "Hello"
+    assert words[1].text == "World"
+
+
 # ==============================================================================
 # 4. Word-to-Line Clustering Tests
 # ==============================================================================

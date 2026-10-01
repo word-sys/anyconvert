@@ -649,7 +649,7 @@ class ContentInterpreter:
 
     def _apply_ext_gstate(self, name: str) -> None:
         """Apply parameters from ExtGState resource dictionary ('gs')."""
-        ext_gstates = self._resources.get("ExtGState")
+        ext_gstates = self._dereference(self._resources.get("ExtGState"))
         if not isinstance(ext_gstates, PDFDict):
             return
 
@@ -699,7 +699,7 @@ class ContentInterpreter:
 
     def _invoke_xobject(self, name: str) -> None:
         """Invoke named XObject ('Do')."""
-        xobjects = self._resources.get("XObject")
+        xobjects = self._dereference(self._resources.get("XObject"))
         if not isinstance(xobjects, PDFDict):
             return
 
@@ -756,7 +756,7 @@ class ContentInterpreter:
         if clean_name in self._fonts:
             return self._fonts[clean_name]
 
-        fonts_dict = self._resources.get("Font")
+        fonts_dict = self._dereference(self._resources.get("Font"))
         if isinstance(fonts_dict, PDFDict):
             font_ref = fonts_dict.get(clean_name)
             if font_ref is not None:
@@ -799,6 +799,8 @@ class ContentInterpreter:
         font_desc_val = fd.get("FontDescriptor")
         font_desc = self._dereference(font_desc_val) if font_desc_val is not None else None
 
+        base_font: BaseFont = BaseFont(name=font_name)
+
         if isinstance(font_desc, PDFDict):
             # TrueType / OpenType (/FontFile2)
             if "FontFile2" in font_desc:
@@ -809,12 +811,12 @@ class ContentInterpreter:
                         filt = ff2.dict.get("Filter")
                         parms = ff2.dict.get("DecodeParms")
                         dec = decode_stream(raw_bytes, filt, parms)
-                        return SFNTFont(dec, name=font_name)
+                        base_font = SFNTFont(dec, name=font_name)
                     except Exception:
                         pass
 
             # Type 1 (/FontFile)
-            if "FontFile" in font_desc:
+            elif "FontFile" in font_desc:
                 ff1 = self._dereference(font_desc["FontFile"])
                 if isinstance(ff1, PDFStream):
                     try:
@@ -822,13 +824,11 @@ class ContentInterpreter:
                         filt = ff1.dict.get("Filter")
                         parms = ff1.dict.get("DecodeParms")
                         dec = decode_stream(raw_bytes, filt, parms)
-                        return Type1Font(dec, name=font_name)
+                        base_font = Type1Font(dec, name=font_name)
                     except Exception:
                         pass
 
         # 3. Simple font with Encoding and Widths
-        base_font = BaseFont(name=font_name)
-
         # BaseFont name
         bf_name = self._dereference(fd.get("BaseFont"))
         if isinstance(bf_name, (str, PDFName)):
@@ -860,8 +860,11 @@ class ContentInterpreter:
                 pass
 
         # Resolve /ToUnicode
-        if "ToUnicode" in fd:
-            tu_obj = self._dereference(fd["ToUnicode"])
+        tu_entry = fd.get("ToUnicode")
+        if tu_entry is None and isinstance(font_desc, PDFDict):
+            tu_entry = font_desc.get("ToUnicode")
+        if tu_entry is not None:
+            tu_obj = self._dereference(tu_entry)
             if isinstance(tu_obj, PDFStream):
                 try:
                     raw_bytes = tu_obj.get_raw_bytes()

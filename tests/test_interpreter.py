@@ -338,3 +338,58 @@ def test_interpreter_composite_font_to_unicode() -> None:
     assert output.text_elements[0].text == "H"
     assert output.text_elements[1].text == "i"
     assert output.text_elements[0].font_size == 14.0
+
+
+def test_interpreter_simple_font_to_unicode_and_indirect_resources() -> None:
+    """Verify simple font with ToUnicode and indirect Font resource dictionary."""
+    from anyconvert.pdf.parser import PDFIndirectRef
+
+    class MockResolver:
+        def __init__(self, table: dict[tuple[int, int], object]) -> None:
+            self._table = table
+
+        def dereference(self, obj: object) -> object:
+            if isinstance(obj, PDFIndirectRef):
+                return self._table.get((obj.obj_id, obj.generation), obj)
+            return obj
+
+    cmap_text = b"""
+    begincmap
+    1 begincodespacerange <00> <FF> endcodespacerange
+    2 beginbfchar
+      <01> <0041>
+      <02> <0042>
+    endbfchar
+    endcmap
+    """
+    to_unicode_stream = PDFStream(dict=PDFDict({"Length": len(cmap_text)}), data=memoryview(cmap_text))
+
+    font_dict = PDFDict({
+        "Type": PDFName("Font"),
+        "Subtype": PDFName("TrueType"),
+        "BaseFont": PDFName("TestSimpleFont"),
+        "ToUnicode": to_unicode_stream,
+    })
+
+    indirect_font_dict = PDFDict({"F1": font_dict})
+    resolver = MockResolver({(10, 0): indirect_font_dict})
+
+    resources = PDFDict({"Font": PDFIndirectRef(10, 0)})
+
+    stream = """
+    BT
+      /F1 12 Tf
+      20 20 Td
+      <0102> Tj
+    ET
+    """
+    from typing import Any, cast
+
+    interpreter = ContentInterpreter(resources=resources, resolver=cast(Any, resolver))
+    output = interpreter.interpret(stream)
+
+    assert len(output.text_elements) == 2
+    assert output.text_elements[0].text == "A"
+    assert output.text_elements[1].text == "B"
+    assert output.text_elements[0].font_size == 12.0
+

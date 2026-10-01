@@ -26,6 +26,47 @@ from anyconvert.pdf.xref import XRefResolver
 from anyconvert.utils.png import encode_gray_png, encode_rgb_png, encode_rgba_png
 
 
+def _is_smask_opaque(smask_stream: PDFStream, resolver: Optional[XRefResolver]) -> bool:
+    """Check if an SMask stream represents a 100% opaque mask (no transparency)."""
+    def deref(obj: Any) -> Any:
+        if resolver is not None:
+            return resolver.dereference(obj)
+        return obj
+
+    sdict = smask_stream.dict
+    filt = sdict.get("Filter")
+    parms = sdict.get("DecodeParms")
+    decode_raw = deref(sdict.get("Decode"))
+
+    dmin, dmax = 0.0, 1.0
+    if isinstance(decode_raw, (list, tuple, PDFArray)) and len(decode_raw) >= 2:
+        try:
+            d0 = deref(decode_raw[0])
+            d1 = deref(decode_raw[1])
+            dmin = float(d0)
+            dmax = float(d1)
+        except (ValueError, TypeError):
+            pass
+
+    try:
+        raw_payload = smask_stream.get_raw_bytes()
+        mask_bytes = decode_stream(raw_payload, filt, parms)
+    except Exception:
+        return False
+
+    if not mask_bytes:
+        return True
+
+    # In PDF, Decode [1 0] with sample value 0 maps to 1.0 (opaque)
+    if dmin == 1.0 and dmax == 0.0:
+        return not any(mask_bytes)
+    # Default Decode [0 1] with sample value 255 maps to 1.0 (opaque)
+    if dmin == 0.0 and dmax == 1.0:
+        return mask_bytes == b"\xff" * len(mask_bytes)
+
+    return False
+
+
 class PDFImage:
     """Represents a raster image extracted from a PDF Image XObject stream."""
 
@@ -195,7 +236,16 @@ class PDFImage:
         # Check for transparency masks (/SMask, /Mask)
         smask_ref = sdict.get("SMask")
         mask_ref = sdict.get("Mask")
-        has_mask = smask_ref is not None or mask_ref is not None
+        has_mask = mask_ref is not None
+        if smask_ref is not None:
+            smask_obj = deref(smask_ref)
+            if isinstance(smask_obj, PDFStream):
+                if not _is_smask_opaque(smask_obj, resolver):
+                    has_mask = True
+                else:
+                    smask_ref = None
+            else:
+                has_mask = True
 
         # Resolve ColorSpace
         cs_obj = deref(sdict.get("ColorSpace")) if not is_mask else None

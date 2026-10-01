@@ -36,7 +36,7 @@ from anyconvert.ir.model import (
 from anyconvert.ir.validator import validate_document_ir
 from anyconvert.pdf.content.interpreter import ImageElement, InterpreterOutput
 from anyconvert.pdf.graphics.image import PDFImage
-from anyconvert.pdf.parser import PDFDict, PDFName, PDFStream
+from anyconvert.pdf.parser import PDFArray, PDFDict, PDFName, PDFStream
 from anyconvert.utils.png import PNG_SIGNATURE, encode_rgb_png
 
 JPEG_MAGIC_SAMPLE = b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00" + b"\x00" * 30 + b"\xFF\xD9"
@@ -766,4 +766,67 @@ def test_end_to_end_pdf_to_all_5_formats_lossless_jpeg_passthrough() -> None:
     txt_bytes = convert(doc_ir, "txt")
     txt_str = txt_bytes.decode("utf-8")
     assert "image_1.jpeg" in txt_str
+
+
+def test_pdfimage_jpeg_with_opaque_smask_passes_through() -> None:
+    """Verify JPEG with opaque SMask (Decode [1 0] all zeroes) passes through as native JPEG."""
+    base_dict = PDFDict({
+        "Type": PDFName("XObject"),
+        "Subtype": PDFName("Image"),
+        "Width": 2,
+        "Height": 2,
+        "BitsPerComponent": 8,
+        "ColorSpace": PDFName("DeviceRGB"),
+        "Filter": PDFName("DCTDecode"),
+    })
+    smask_dict = PDFDict({
+        "Type": PDFName("XObject"),
+        "Subtype": PDFName("Image"),
+        "Width": 2,
+        "Height": 2,
+        "BitsPerComponent": 8,
+        "ColorSpace": PDFName("DeviceGray"),
+        "Decode": PDFArray([1, 0]),
+    })
+    smask_stream = PDFStream(smask_dict, memoryview(bytes([0, 0, 0, 0])))
+
+    base_dict["SMask"] = smask_stream
+    base_stream = PDFStream(base_dict, memoryview(JPEG_MAGIC_SAMPLE))
+
+    img = PDFImage.from_stream(base_stream)
+    assert img.has_alpha is False
+    assert img.format == "jpeg"
+    assert img.to_bytes() == JPEG_MAGIC_SAMPLE
+
+
+def test_pdfimage_jpeg_with_opaque_smask_decode_0_1_passes_through() -> None:
+    """Verify JPEG with opaque SMask (Decode [0 1] all 255s) passes through as native JPEG."""
+    base_dict = PDFDict({
+        "Type": PDFName("XObject"),
+        "Subtype": PDFName("Image"),
+        "Width": 2,
+        "Height": 2,
+        "BitsPerComponent": 8,
+        "ColorSpace": PDFName("DeviceRGB"),
+        "Filter": PDFName("DCTDecode"),
+    })
+    smask_dict = PDFDict({
+        "Type": PDFName("XObject"),
+        "Subtype": PDFName("Image"),
+        "Width": 2,
+        "Height": 2,
+        "BitsPerComponent": 8,
+        "ColorSpace": PDFName("DeviceGray"),
+        "Decode": PDFArray([0, 1]),
+    })
+    smask_stream = PDFStream(smask_dict, memoryview(bytes([255, 255, 255, 255])))
+
+    base_dict["SMask"] = smask_stream
+    base_stream = PDFStream(base_dict, memoryview(JPEG_MAGIC_SAMPLE))
+
+    img = PDFImage.from_stream(base_stream)
+    assert img.has_alpha is False
+    assert img.format == "jpeg"
+    assert img.to_bytes() == JPEG_MAGIC_SAMPLE
+
 
