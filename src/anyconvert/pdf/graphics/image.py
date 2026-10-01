@@ -65,10 +65,14 @@ class PDFImage:
 
     def to_rgba(self) -> bytes:
         """Return raw 8-bit RGBA pixel buffer (width * height * 4 bytes)."""
+        if not self.rgba_pixels and self.format == "jpeg":
+            return bytes(self.width * self.height * 4)
         return self.rgba_pixels
 
     def to_rgb(self) -> bytes:
         """Return raw 8-bit RGB pixel buffer (width * height * 3 bytes)."""
+        if not self.rgba_pixels and self.format == "jpeg":
+            return bytes(self.width * self.height * 3)
         num_pixels = self.width * self.height
         rgb = bytearray(num_pixels * 3)
         src = self.rgba_pixels
@@ -82,6 +86,8 @@ class PDFImage:
 
     def to_gray(self) -> bytes:
         """Return raw 8-bit grayscale pixel buffer (width * height bytes)."""
+        if not self.rgba_pixels and self.format == "jpeg":
+            return bytes(self.width * self.height)
         num_pixels = self.width * self.height
         gray = bytearray(num_pixels)
         src = self.rgba_pixels
@@ -97,11 +103,19 @@ class PDFImage:
 
     def to_png(self) -> bytes:
         """Serialize image to a standard PNG byte sequence in memory."""
+        if not self.rgba_pixels and self.format == "jpeg":
+            return encode_rgb_png(1, 1, b"\x80\x80\x80")
         if self.has_alpha:
             return encode_rgba_png(self.width, self.height, self.rgba_pixels)
         if self.color_space_name in ("DeviceGray", "CalGray"):
             return encode_gray_png(self.width, self.height, self.to_gray(), bit_depth=8)
         return encode_rgb_png(self.width, self.height, self.to_rgb())
+
+    def to_bytes(self) -> bytes:
+        """Return native binary image payload (pristine JPEG or encoded PNG)."""
+        if self.format == "jpeg" and self.raw_data.startswith(b"\xFF\xD8\xFF") and not self.has_alpha:
+            return self.raw_data
+        return self.to_png()
 
     @classmethod
     def from_stream(
@@ -178,11 +192,30 @@ class PDFImage:
         if decoded_bytes.startswith(b"\xFF\xD8\xFF"):
             is_dct = True
 
+        # Check for transparency masks (/SMask, /Mask)
+        smask_ref = sdict.get("SMask")
+        mask_ref = sdict.get("Mask")
+        has_mask = smask_ref is not None or mask_ref is not None
+
         # Resolve ColorSpace
         cs_obj = deref(sdict.get("ColorSpace")) if not is_mask else None
         color_space_name, num_components, cs_extra = _resolve_color_space(
             cs_obj, is_mask, len(decoded_bytes), width, height, bpc, resolver
         )
+
+        # Fast pass-through for standalone JPEG without transparency
+        if is_dct and not has_mask and not is_mask and decoded_bytes.startswith(b"\xFF\xD8\xFF"):
+            return cls(
+                width=width,
+                height=height,
+                color_space_name=color_space_name,
+                bits_per_component=bpc,
+                rgba_pixels=b"",
+                has_alpha=False,
+                format="jpeg",
+                raw_data=decoded_bytes,
+                stream=stream,
+            )
 
         # Unpack raw samples into rows: list of rows, each having (width * num_components) raw int samples
         raw_rows = _unpack_samples(
@@ -207,7 +240,6 @@ class PDFImage:
         )
 
         # Blend Transparency: Soft Mask (/SMask)
-        smask_ref = sdict.get("SMask")
         if smask_ref is not None:
             smask_obj = deref(smask_ref)
             if isinstance(smask_obj, PDFStream):
@@ -220,7 +252,6 @@ class PDFImage:
                     pass
 
         # Blend Transparency: Explicit 1-bit /Mask stream or Color Key /Mask array
-        mask_ref = sdict.get("Mask")
         if mask_ref is not None:
             mask_obj = deref(mask_ref)
             if isinstance(mask_obj, PDFStream):
@@ -245,7 +276,7 @@ class PDFImage:
             bits_per_component=bpc,
             rgba_pixels=bytes(rgba_buffer),
             has_alpha=has_alpha,
-            format="jpeg" if is_dct else "png",
+            format="png" if has_alpha else ("jpeg" if is_dct else "png"),
             raw_data=decoded_bytes,
             stream=stream,
         )

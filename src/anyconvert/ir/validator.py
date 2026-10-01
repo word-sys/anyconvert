@@ -190,7 +190,7 @@ def _validate_image(img: ImageBlock, page_num: int) -> None:
 
     detected = detect_image_format(img.png_bytes)
 
-    # Gracefully synchronize format if a known valid image payload is detected
+    # Synchronize format if valid image detected
     if detected != "unknown" and img.format != detected:
         img.format = detected
 

@@ -361,16 +361,8 @@ class DocumentIRBuilder:
             if im.stream is not None:
                 try:
                     pdf_img = PDFImage.from_stream(im.stream, resolver=self._resolver)
-                    if (
-                        pdf_img.format in ("jpeg", "jpg")
-                        and pdf_img.raw_data.startswith(b"\xFF\xD8\xFF")
-                        and not pdf_img.has_alpha
-                    ):
-                        img_data = pdf_img.raw_data
-                        fmt = "jpeg"
-                    else:
-                        img_data = pdf_img.to_png()
-                        fmt = "png"
+                    img_data = pdf_img.to_bytes()
+                    fmt = pdf_img.format
                 except Exception:
                     img_data = _create_fallback_png()
                     fmt = "png"

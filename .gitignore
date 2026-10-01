@@ -25,7 +25,6 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-PLAN.md
 PLAN_V2.md
 
 # PyInstaller

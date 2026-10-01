@@ -116,11 +116,7 @@ class Table:
 
 
 def detect_image_format(data: bytes) -> str:
-    """Detect image format from binary magic bytes.
-
-    Returns:
-        One of 'png', 'jpeg', 'webp', 'gif', 'bmp', 'tiff', 'svg', or 'unknown'.
-    """
+    """Detect image format from binary magic bytes."""
     if not data:
         return "unknown"
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -143,7 +139,7 @@ def detect_image_format(data: bytes) -> str:
 
 @dataclass(slots=True)
 class ImageBlock:
-    """A raster or vector image block embedded in presentation or flow layout."""
+    """Raster or vector image block."""
 
     png_bytes: bytes
     bbox: BoundingBox
@@ -153,12 +149,10 @@ class ImageBlock:
 
     @property
     def image_bytes(self) -> bytes:
-        """Alias for png_bytes providing format-agnostic binary access."""
         return self.png_bytes
 
     @property
     def mime_type(self) -> str:
-        """Return the standard MIME type for this image block."""
         fmt = self.format.lower()
         if fmt == "png":
             return "image/png"
