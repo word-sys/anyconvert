@@ -107,6 +107,58 @@ def test_image_block_properties_and_mime_types() -> None:
     assert unknown_block.mime_type == "application/octet-stream"
 
 
+def test_image_block_dual_initialization_and_setter() -> None:
+    bbox = BoundingBox(0, 0, 50, 50)
+
+    # Keyword image_bytes initialization
+    b1 = ImageBlock(image_bytes=JPEG_MAGIC_SAMPLE, bbox=bbox, format="jpeg")
+    assert b1.image_bytes == JPEG_MAGIC_SAMPLE
+    assert b1.png_bytes == JPEG_MAGIC_SAMPLE
+
+    # Keyword png_bytes initialization
+    b2 = ImageBlock(png_bytes=JPEG_MAGIC_SAMPLE, bbox=bbox, format="jpeg")
+    assert b2.image_bytes == JPEG_MAGIC_SAMPLE
+    assert b2.png_bytes == JPEG_MAGIC_SAMPLE
+
+    # Positional initialization
+    b3 = ImageBlock(JPEG_MAGIC_SAMPLE, bbox)
+    assert b3.image_bytes == JPEG_MAGIC_SAMPLE
+    assert b3.png_bytes == JPEG_MAGIC_SAMPLE
+
+    # Setter test
+    b3.png_bytes = WEBP_MAGIC_SAMPLE
+    assert b3.image_bytes == WEBP_MAGIC_SAMPLE
+    assert b3.png_bytes == WEBP_MAGIC_SAMPLE
+
+
+def test_image_block_file_extension() -> None:
+    bbox = BoundingBox(0, 0, 50, 50)
+    assert ImageBlock(image_bytes=b"...", bbox=bbox, format="png").file_extension == ".png"
+    assert ImageBlock(image_bytes=b"...", bbox=bbox, format="jpeg").file_extension == ".jpeg"
+    assert ImageBlock(image_bytes=b"...", bbox=bbox, format="jpg").file_extension == ".jpeg"
+    assert ImageBlock(image_bytes=b"...", bbox=bbox, format="webp").file_extension == ".webp"
+    assert ImageBlock(image_bytes=b"...", bbox=bbox, format="svg").file_extension == ".svg"
+    assert ImageBlock(image_bytes=b"...", bbox=bbox, format="gif").file_extension == ".gif"
+    assert ImageBlock(image_bytes=b"...", bbox=bbox, format="bmp").file_extension == ".bmp"
+    assert ImageBlock(image_bytes=b"...", bbox=bbox, format="tiff").file_extension == ".tiff"
+
+
+def test_image_block_sync_format() -> None:
+    bbox = BoundingBox(0, 0, 50, 50)
+    img_jpeg = ImageBlock(image_bytes=JPEG_MAGIC_SAMPLE, bbox=bbox, format="unknown")
+    assert img_jpeg.sync_format() == "jpeg"
+    assert img_jpeg.format == "jpeg"
+
+    valid_png = encode_rgb_png(1, 1, b"\x00\x00\x00")
+    img_png = ImageBlock(image_bytes=valid_png, bbox=bbox, format="other")
+    assert img_png.sync_format() == "png"
+    assert img_png.format == "png"
+
+    img_webp = ImageBlock(image_bytes=WEBP_MAGIC_SAMPLE, bbox=bbox, format="other")
+    assert img_webp.sync_format() == "webp"
+    assert img_webp.format == "webp"
+
+
 def test_validator_auto_heals_jpeg_format_with_png_bytes() -> None:
     """Test format auto-healing when jpeg format contains png bytes."""
     valid_png = encode_rgb_png(2, 2, b"\xFF\x00\x00\x00\xFF\x00\x00\x00\xFF\xFF\xFF\xFF")

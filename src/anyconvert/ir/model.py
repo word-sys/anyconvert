@@ -141,15 +141,40 @@ def detect_image_format(data: bytes) -> str:
 class ImageBlock:
     """Raster or vector image block."""
 
-    png_bytes: bytes
+    image_bytes: bytes
     bbox: BoundingBox
     alt_text: str = ""
     rotation: float = 0.0
     format: str = "png"
+    pixel_width: Optional[int] = None
+    pixel_height: Optional[int] = None
+
+    def __init__(
+        self,
+        image_bytes: bytes = b"",
+        bbox: Optional[BoundingBox] = None,
+        alt_text: str = "",
+        rotation: float = 0.0,
+        format: str = "png",
+        pixel_width: Optional[int] = None,
+        pixel_height: Optional[int] = None,
+        png_bytes: Optional[bytes] = None,
+    ) -> None:
+        self.image_bytes = png_bytes if png_bytes is not None else image_bytes
+        self.bbox = bbox if bbox is not None else BoundingBox(0.0, 0.0, 0.0, 0.0)
+        self.alt_text = alt_text
+        self.rotation = rotation
+        self.format = format
+        self.pixel_width = pixel_width
+        self.pixel_height = pixel_height
 
     @property
-    def image_bytes(self) -> bytes:
-        return self.png_bytes
+    def png_bytes(self) -> bytes:
+        return self.image_bytes
+
+    @png_bytes.setter
+    def png_bytes(self, value: bytes) -> None:
+        self.image_bytes = value
 
     @property
     def mime_type(self) -> str:
@@ -169,6 +194,29 @@ class ImageBlock:
         if fmt == "svg":
             return "image/svg+xml"
         return "application/octet-stream"
+
+    @property
+    def file_extension(self) -> str:
+        fmt = self.format.lower()
+        if fmt in ("jpeg", "jpg"):
+            return ".jpeg"
+        if fmt == "svg":
+            return ".svg"
+        if fmt == "webp":
+            return ".webp"
+        if fmt == "gif":
+            return ".gif"
+        if fmt == "bmp":
+            return ".bmp"
+        if fmt == "tiff":
+            return ".tiff"
+        return ".png"
+
+    def sync_format(self) -> str:
+        detected = detect_image_format(self.image_bytes)
+        if detected != "unknown":
+            self.format = detected
+        return self.format
 
 
 @dataclass(slots=True)
