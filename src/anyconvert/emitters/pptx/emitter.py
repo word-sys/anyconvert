@@ -40,7 +40,11 @@ from anyconvert.packaging.opc import (
     CT_CORE_PROPERTIES,
     CT_DRAWINGML_THEME,
     CT_EXTENDED_PROPERTIES,
+    CT_GIF,
+    CT_JPEG,
     CT_PNG,
+    CT_SVG,
+    CT_TIFF,
     CT_PRESENTATION_DOCUMENT,
     CT_PRESENTATION_SLIDE,
     CT_PRESENTATION_SLIDELAYOUT,
@@ -333,10 +337,23 @@ class PptxEmitter(BaseEmitter):
         img_idx = global_image_counter[0]
         global_image_counter[0] += 1
 
-        img_part_name = f"ppt/media/image{img_idx}.png"
-        rel_target = f"../media/image{img_idx}.png"
+        ext = img.file_extension
+        fmt = img.format.lower()
+        if fmt in ("jpeg", "jpg"):
+            content_type = CT_JPEG
+        elif fmt == "gif":
+            content_type = CT_GIF
+        elif fmt == "tiff":
+            content_type = CT_TIFF
+        elif fmt == "svg":
+            content_type = CT_SVG
+        else:
+            content_type = CT_PNG
 
-        pkg.add_part(img_part_name, img.png_bytes, content_type=CT_PNG)
+        img_part_name = f"ppt/media/image{img_idx}{ext}"
+        rel_target = f"../media/image{img_idx}{ext}"
+
+        pkg.add_part(img_part_name, img.image_bytes, content_type=content_type)
 
         rel_id = f"rIdImg{shape_id}"
         slide_image_rels[rel_target] = rel_id

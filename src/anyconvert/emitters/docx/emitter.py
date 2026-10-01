@@ -38,7 +38,11 @@ from anyconvert.ir.model import (
 from anyconvert.packaging.opc import (
     CT_CORE_PROPERTIES,
     CT_EXTENDED_PROPERTIES,
+    CT_GIF,
+    CT_JPEG,
     CT_PNG,
+    CT_SVG,
+    CT_TIFF,
     CT_WORDPROCESSING_DOCUMENT,
     CT_WORDPROCESSING_FONTTABLE,
     CT_WORDPROCESSING_FOOTER,
@@ -493,10 +497,23 @@ class DocxEmitter(BaseEmitter):
         img_num = image_counter_ref[0]
         image_counter_ref[0] += 1
 
-        img_part_name = f"word/media/image{img_num}.png"
-        rel_target = f"media/image{img_num}.png"
+        ext = img.file_extension
+        fmt = img.format.lower()
+        if fmt in ("jpeg", "jpg"):
+            content_type = CT_JPEG
+        elif fmt == "gif":
+            content_type = CT_GIF
+        elif fmt == "tiff":
+            content_type = CT_TIFF
+        elif fmt == "svg":
+            content_type = CT_SVG
+        else:
+            content_type = CT_PNG
 
-        pkg.add_part(img_part_name, img.png_bytes, content_type=CT_PNG)
+        img_part_name = f"word/media/image{img_num}{ext}"
+        rel_target = f"media/image{img_num}{ext}"
+
+        pkg.add_part(img_part_name, img.image_bytes, content_type=content_type)
 
         rel_id = f"rIdImg{img_num}"
         doc_rels[rel_target] = rel_id

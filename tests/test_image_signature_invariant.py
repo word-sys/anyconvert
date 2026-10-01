@@ -7,9 +7,14 @@ import pytest
 
 from anyconvert.common.color import Color
 from anyconvert.common.geometry import BoundingBox, Matrix3x3, Point
+from anyconvert.emitters.base import ConversionMode
+from anyconvert.emitters.docx import DocxEmitter
+from anyconvert.emitters.pptx import PptxEmitter
 from anyconvert.exceptions import IRValidationError
 from anyconvert.ir.builder import DocumentIRBuilder
+from anyconvert.packaging.opc import OPCPackage
 from anyconvert.ir.model import (
+    BlockNode,
     DocumentIR,
     DocumentPage,
     ImageBlock,
@@ -392,3 +397,178 @@ def test_pdfimage_jpeg_with_smask_transparency_blends_to_png() -> None:
     assert img.has_alpha is True
     assert img.format == "png"
     assert img.to_bytes().startswith(PNG_SIGNATURE)
+
+
+def test_docx_emitter_embeds_native_jpeg_flow() -> None:
+    """Test DocxEmitter embeds native JPEG in Flow mode without PNG transcoding."""
+    img_block = ImageBlock(
+        image_bytes=JPEG_MAGIC_SAMPLE,
+        format="jpeg",
+        bbox=BoundingBox(50, 50, 150, 150),
+    )
+    page = DocumentPage(1, 612.0, 792.0, blocks=[img_block])
+    doc_ir = DocumentIR(pages=[page])
+
+    docx_bytes = DocxEmitter().emit(doc_ir, mode=ConversionMode.FLOW)
+    pkg = OPCPackage.parse(docx_bytes)
+
+    assert pkg.has_part("word/media/image1.jpeg")
+    assert not pkg.has_part("word/media/image1.png")
+    assert pkg.get_part("word/media/image1.jpeg").content == JPEG_MAGIC_SAMPLE
+
+    doc_part = pkg.get_part("word/document.xml")
+    assert "rIdImg1" in doc_part.content.decode("utf-8")
+    rel = doc_part.get_relationship("rIdImg1")
+    assert rel.target == "media/image1.jpeg"
+
+
+def test_docx_emitter_embeds_native_jpeg_canvas() -> None:
+    """Test DocxEmitter embeds native JPEG in Canvas mode without PNG transcoding."""
+    img_block = ImageBlock(
+        image_bytes=JPEG_MAGIC_SAMPLE,
+        format="jpeg",
+        bbox=BoundingBox(50, 50, 150, 150),
+    )
+    page = DocumentPage(1, 612.0, 792.0, blocks=[img_block])
+    doc_ir = DocumentIR(pages=[page])
+
+    docx_bytes = DocxEmitter().emit(doc_ir, mode=ConversionMode.CANVAS)
+    pkg = OPCPackage.parse(docx_bytes)
+
+    assert pkg.has_part("word/media/image1.jpeg")
+    assert not pkg.has_part("word/media/image1.png")
+    assert pkg.get_part("word/media/image1.jpeg").content == JPEG_MAGIC_SAMPLE
+
+    doc_part = pkg.get_part("word/document.xml")
+    assert "rIdImg1" in doc_part.content.decode("utf-8")
+    rel = doc_part.get_relationship("rIdImg1")
+    assert rel.target == "media/image1.jpeg"
+
+
+def test_docx_emitter_multi_format_images() -> None:
+    """Test DocxEmitter handles heterogeneous image formats concurrently."""
+    png_data = encode_rgb_png(2, 2, b"\xFF\x00\x00\x00\xFF\x00\x00\x00\xFF\xFF\xFF\xFF")
+    blocks: list[BlockNode] = [
+        ImageBlock(image_bytes=JPEG_MAGIC_SAMPLE, format="jpeg", bbox=BoundingBox(0, 0, 50, 50)),
+        ImageBlock(image_bytes=png_data, format="png", bbox=BoundingBox(0, 50, 50, 100)),
+        ImageBlock(image_bytes=GIF89A_SAMPLE, format="gif", bbox=BoundingBox(0, 100, 50, 150)),
+        ImageBlock(image_bytes=SVG_SAMPLE, format="svg", bbox=BoundingBox(0, 150, 50, 200)),
+    ]
+    page = DocumentPage(1, 612.0, 792.0, blocks=blocks)
+    doc_ir = DocumentIR(pages=[page])
+
+    docx_bytes = DocxEmitter().emit(doc_ir, mode=ConversionMode.FLOW)
+    pkg = OPCPackage.parse(docx_bytes)
+
+    assert pkg.has_part("word/media/image1.jpeg")
+    assert pkg.has_part("word/media/image2.png")
+    assert pkg.has_part("word/media/image3.gif")
+    assert pkg.has_part("word/media/image4.svg")
+
+    doc_part = pkg.get_part("word/document.xml")
+    assert doc_part.get_relationship("rIdImg1").target == "media/image1.jpeg"
+    assert doc_part.get_relationship("rIdImg2").target == "media/image2.png"
+    assert doc_part.get_relationship("rIdImg3").target == "media/image3.gif"
+    assert doc_part.get_relationship("rIdImg4").target == "media/image4.svg"
+
+
+def test_pptx_emitter_embeds_native_jpeg() -> None:
+    """Test PptxEmitter embeds native JPEG without PNG transcoding."""
+    img_block = ImageBlock(
+        image_bytes=JPEG_MAGIC_SAMPLE,
+        format="jpeg",
+        bbox=BoundingBox(50, 50, 200, 150),
+    )
+    page = DocumentPage(1, 720.0, 540.0, blocks=[img_block])
+    doc_ir = DocumentIR(pages=[page])
+
+    pptx_bytes = PptxEmitter().emit(doc_ir)
+    pkg = OPCPackage.parse(pptx_bytes)
+
+    assert pkg.has_part("ppt/media/image1.jpeg")
+    assert not pkg.has_part("ppt/media/image1.png")
+    assert pkg.get_part("ppt/media/image1.jpeg").content == JPEG_MAGIC_SAMPLE
+
+    slide_part = pkg.get_part("ppt/slides/slide1.xml")
+    slide_xml = slide_part.content.decode("utf-8")
+    assert "<p:pic>" in slide_xml
+    assert 'r:embed="rIdImg2"' in slide_xml
+
+    rel = slide_part.get_relationship("rIdImg2")
+    assert rel.target == "../media/image1.jpeg"
+
+
+def test_pptx_emitter_multi_format_images() -> None:
+    """Test PptxEmitter embeds heterogeneous image formats on a slide."""
+    png_data = encode_rgb_png(2, 2, b"\xFF\x00\x00\x00\xFF\x00\x00\x00\xFF\xFF\xFF\xFF")
+    blocks: list[BlockNode] = [
+        ImageBlock(image_bytes=JPEG_MAGIC_SAMPLE, format="jpeg", bbox=BoundingBox(10, 10, 100, 100)),
+        ImageBlock(image_bytes=png_data, format="png", bbox=BoundingBox(120, 10, 210, 100)),
+        ImageBlock(image_bytes=SVG_SAMPLE, format="svg", bbox=BoundingBox(230, 10, 320, 100)),
+    ]
+    page = DocumentPage(1, 720.0, 540.0, blocks=blocks)
+    doc_ir = DocumentIR(pages=[page])
+
+    pptx_bytes = PptxEmitter().emit(doc_ir)
+    pkg = OPCPackage.parse(pptx_bytes)
+
+    assert pkg.has_part("ppt/media/image1.jpeg")
+    assert pkg.has_part("ppt/media/image2.png")
+    assert pkg.has_part("ppt/media/image3.svg")
+
+    slide_part = pkg.get_part("ppt/slides/slide1.xml")
+    assert slide_part.get_relationship("rIdImg2").target == "../media/image1.jpeg"
+    assert slide_part.get_relationship("rIdImg3").target == "../media/image2.png"
+    assert slide_part.get_relationship("rIdImg4").target == "../media/image3.svg"
+
+
+def test_end_to_end_pdf_to_docx_pptx_lossless_jpeg_passthrough() -> None:
+    """Test end-to-end PDF stream -> IR -> DOCX & PPTX with zero JPEG re-encoding."""
+    stream_dict = PDFDict({
+        "Type": PDFName("XObject"),
+        "Subtype": PDFName("Image"),
+        "Width": 100,
+        "Height": 80,
+        "BitsPerComponent": 8,
+        "ColorSpace": PDFName("DeviceRGB"),
+        "Filter": PDFName("DCTDecode"),
+    })
+    jpeg_stream = PDFStream(stream_dict, memoryview(JPEG_MAGIC_SAMPLE))
+
+    im_el = ImageElement(
+        name="Im1",
+        ctm=Matrix3x3.identity(),
+        bbox=BoundingBox(50, 400, 250, 600),
+        stream=jpeg_stream,
+    )
+    interp_output = InterpreterOutput(
+        text_elements=[],
+        vector_elements=[],
+        image_elements=[im_el],
+    )
+    builder = DocumentIRBuilder()
+    doc_page = builder.build_page(
+        output=interp_output,
+        page_width=612.0,
+        page_height=792.0,
+        page_number=1,
+    )
+    doc_ir = builder.build_document([doc_page])
+
+    validate_document_ir(doc_ir)
+    assert len(doc_ir.pages[0].blocks) == 1
+    ir_img = doc_ir.pages[0].blocks[0]
+    assert isinstance(ir_img, ImageBlock)
+    assert ir_img.format == "jpeg"
+    assert ir_img.image_bytes == JPEG_MAGIC_SAMPLE
+
+    docx_bytes = DocxEmitter().emit(doc_ir, mode=ConversionMode.FLOW)
+    docx_pkg = OPCPackage.parse(docx_bytes)
+    assert docx_pkg.has_part("word/media/image1.jpeg")
+    assert docx_pkg.get_part("word/media/image1.jpeg").content == JPEG_MAGIC_SAMPLE
+
+    pptx_bytes = PptxEmitter().emit(doc_ir)
+    pptx_pkg = OPCPackage.parse(pptx_bytes)
+    assert pptx_pkg.has_part("ppt/media/image1.jpeg")
+    assert pptx_pkg.get_part("ppt/media/image1.jpeg").content == JPEG_MAGIC_SAMPLE
+
