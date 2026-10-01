@@ -43,7 +43,7 @@
 - **ODT & PPTX Export Issues**:
   - **PDF Original Position**: If PDF itself is vertical, ODP & PPTX export will be broken due to horizontal size of slides.
   - **Known Bug**: Shapes or pen markups aren't supported, it will not shown on your presentation.
-  - **Beta Stage**: Project now at v0.1.3 Beta stage, only DOCX and ODT seems to be fully function as wanted.
+  - **Beta Stage**: Project now at v0.1.6 Beta stage, consider checking updated regularly for fixes and feature updates, only DOCX and ODT seems to be fully function as wanted.
   - **Design Flaw**: Project designed to be a PDF to XXX document convert library for [word-sys's PDF Editor](https://github.com/word-sys/word-sys-pdf-editor) and mainly designed for DOCX & ODT export, expecting a fully 1:1 export to PPTX & ODP is not possible, for now.
   - **Broken Image**: Images can still be missing or corrupted (e.g. "Page 1 ImageBlock has invalid JPEG signature"), **we are actively working on this**.
 
