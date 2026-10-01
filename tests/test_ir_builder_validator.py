@@ -339,3 +339,42 @@ def test_builder_empty_pages_raises() -> None:
     builder = DocumentIRBuilder()
     with pytest.raises(IRBuilderError):
         builder.build_document([])
+
+
+def test_builder_vector_underline_correlation() -> None:
+    """Test that a thin horizontal vector stroke under text is recognized as an underline and absorbed."""
+    from anyconvert.ir.model import VectorBlock
+    page_w, page_h = 612.0, 792.0
+
+    text_el = TextElement(
+        text="Underlined Text",
+        bbox=BoundingBox(100.0, 500.0, 200.0, 514.0),
+        origin=Point(100.0, 500.0),
+        font_name="Helvetica",
+        font_size=12.0,
+        color=Color.black(),
+    )
+
+    underline_vec = VectorElement(
+        svg_path="M 100 498.5 L 200 498.5",
+        bbox=BoundingBox(100.0, 498.0, 200.0, 499.0),
+        stroke_width=1.0,
+        stroke_color=Color.black(),
+    )
+
+    interp_output = InterpreterOutput(
+        text_elements=[text_el],
+        vector_elements=[underline_vec],
+        image_elements=[],
+    )
+
+    builder = DocumentIRBuilder()
+    page = builder.build_page(interp_output, page_width=page_w, page_height=page_h, page_number=1)
+
+    vector_blocks = [b for b in page.blocks if isinstance(b, VectorBlock)]
+    assert len(vector_blocks) == 0
+
+    paras = [b for b in page.blocks if isinstance(b, Paragraph)]
+    assert len(paras) == 1
+    assert any(run.is_underline for run in paras[0].runs)
+

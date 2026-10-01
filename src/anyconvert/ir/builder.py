@@ -103,6 +103,7 @@ def _words_to_runs(words: Sequence[TextWord]) -> List[TextRun]:
     curr_color = words[0].color
     curr_bold = words[0].is_bold
     curr_italic = words[0].is_italic
+    curr_underline = words[0].is_underline
     curr_bbox: Optional[BoundingBox] = words[0].bbox
 
     for i, w in enumerate(words):
@@ -112,6 +113,7 @@ def _words_to_runs(words: Sequence[TextWord]) -> List[TextRun]:
             and w.color == curr_color
             and w.is_bold == curr_bold
             and w.is_italic == curr_italic
+            and w.is_underline == curr_underline
         )
 
         word_str = w.text + (" " if i < len(words) - 1 else "")
@@ -129,6 +131,7 @@ def _words_to_runs(words: Sequence[TextWord]) -> List[TextRun]:
                     color=curr_color,
                     is_bold=curr_bold,
                     is_italic=curr_italic,
+                    is_underline=curr_underline,
                     bbox=curr_bbox,
                 )
             )
@@ -138,6 +141,7 @@ def _words_to_runs(words: Sequence[TextWord]) -> List[TextRun]:
             curr_color = w.color
             curr_bold = w.is_bold
             curr_italic = w.is_italic
+            curr_underline = w.is_underline
             curr_bbox = w.bbox
 
     if curr_text:
@@ -149,6 +153,7 @@ def _words_to_runs(words: Sequence[TextWord]) -> List[TextRun]:
                 color=curr_color,
                 is_bold=curr_bold,
                 is_italic=curr_italic,
+                is_underline=curr_underline,
                 bbox=curr_bbox,
             )
         )
@@ -304,6 +309,29 @@ class DocumentIRBuilder:
         words = cluster_characters_to_words(output.text_elements, page_height=page_height)
         all_lines = cluster_words_to_lines(words)
 
+        # Correlate thin horizontal vector strokes with text words as underlines
+        absorbed_vector_ids: Set[int] = set()
+        for v in output.vector_elements:
+            if v.bbox is None:
+                continue
+            vb = normalize_bbox_pdf_to_doc(v.bbox, page_height)
+            if vb.height > 3.0 or vb.width < 4.0:
+                continue
+
+            matched_any = False
+            for w in words:
+                y_diff = vb.y0 - w.baseline_y
+                if -1.5 <= y_diff <= max(4.0, 0.40 * w.font_size):
+                    overlap_x0 = max(vb.x0, w.bbox.x0)
+                    overlap_x1 = min(vb.x1, w.bbox.x1)
+                    overlap_w = overlap_x1 - overlap_x0
+                    if overlap_w >= 0.5 * w.bbox.width or (w.bbox.x0 >= vb.x0 - 2.0 and w.bbox.x1 <= vb.x1 + 2.0):
+                        w.is_underline = True
+                        matched_any = True
+
+            if matched_any:
+                absorbed_vector_ids.add(id(v))
+
         # 2. Partition marginal flow (headers, footers, page numbers)
         flow_partition = partition_page_flow(
             lines=all_lines,
@@ -338,6 +366,8 @@ class DocumentIRBuilder:
         # 4. Normalize vector and image elements to document space
         norm_vectors: List[VectorBlock] = []
         for v in output.vector_elements:
+            if id(v) in absorbed_vector_ids:
+                continue
             if v.bbox is not None:
                 vb = normalize_bbox_pdf_to_doc(v.bbox, page_height)
                 # Skip thin ruling vectors that belong to table borders

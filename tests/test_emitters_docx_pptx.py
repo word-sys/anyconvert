@@ -309,3 +309,25 @@ def test_pptx_emitter_empty_doc_raises() -> None:
     emitter = PptxEmitter()
     with pytest.raises(SerializationError):
         emitter.emit(doc_ir)
+
+
+def test_docx_heading_color_preservation() -> None:
+    """Verify DOCX emitter explicitly emits run color for headings instead of defaulting to blue."""
+    h1_run = TextRun(
+        text="Black Title",
+        font_name="Calibri",
+        font_size=20.0,
+        color=Color.black(),
+    )
+    h1_para = Paragraph(
+        runs=[h1_run],
+        alignment=Alignment.LEFT,
+        heading_level=HeadingLevel.H1,
+    )
+    doc_ir = DocumentIR(pages=[DocumentPage(1, 612.0, 792.0, blocks=[h1_para])])
+    emitter = DocxEmitter()
+    docx_bytes = emitter.emit(doc_ir)
+    pkg = OPCPackage.parse(docx_bytes)
+    doc_xml = pkg.get_part("word/document.xml").content.decode("utf-8")
+    assert '<w:color w:val="000000"/>' in doc_xml
+

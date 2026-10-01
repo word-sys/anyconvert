@@ -382,9 +382,10 @@ class DocxEmitter(BaseEmitter):
         if jc_val != "left":
             p_pr_elements.append(f'      <w:jc w:val="{jc_val}"/>')
 
+        is_heading = bool(p.heading_level and p.heading_level in _HEADING_STYLE_MAP)
         runs_xml: List[str] = []
         for run in p.runs:
-            runs_xml.append(self._render_run(run, used_fonts=used_fonts))
+            runs_xml.append(self._render_run(run, used_fonts=used_fonts, is_heading=is_heading))
 
         p_pr_str = ""
         if p_pr_elements:
@@ -392,7 +393,12 @@ class DocxEmitter(BaseEmitter):
 
         return f"    <w:p>\n{p_pr_str}" + "\n".join(runs_xml) + "\n    </w:p>"
 
-    def _render_run(self, run: TextRun, used_fonts: Set[str]) -> str:
+    def _render_run(
+        self,
+        run: TextRun,
+        used_fonts: Set[str],
+        is_heading: bool = False,
+    ) -> str:
         """Render a TextRun to <w:r>."""
         r_pr_elements: List[str] = []
 
@@ -411,9 +417,9 @@ class DocxEmitter(BaseEmitter):
         if run.is_strikethrough:
             r_pr_elements.append("        <w:strike/>")
 
-        # Color (skip default black)
+        # Color: emit for non-black, or always emit if inside a heading to preserve exact color
         hex_c = color_to_hex(run.color)
-        if hex_c != "000000":
+        if hex_c != "000000" or is_heading:
             r_pr_elements.append(f'        <w:color w:val="{hex_c}"/>')
 
         # Font size (in half-points)

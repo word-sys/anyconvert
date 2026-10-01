@@ -41,7 +41,7 @@ def build_default_styles_xml() -> bytes:
       <w:b/>
       <w:sz w:val="48"/>
       <w:szCs w:val="48"/>
-      <w:color w:val="2F5496"/>
+      <w:color w:val="auto"/>
     </w:rPr>
   </w:style>
 
@@ -58,7 +58,7 @@ def build_default_styles_xml() -> bytes:
       <w:b/>
       <w:sz w:val="36"/>
       <w:szCs w:val="36"/>
-      <w:color w:val="2F5496"/>
+      <w:color w:val="auto"/>
     </w:rPr>
   </w:style>
 
@@ -75,7 +75,7 @@ def build_default_styles_xml() -> bytes:
       <w:b/>
       <w:sz w:val="28"/>
       <w:szCs w:val="28"/>
-      <w:color w:val="1F3864"/>
+      <w:color w:val="auto"/>
     </w:rPr>
   </w:style>
 
@@ -92,7 +92,7 @@ def build_default_styles_xml() -> bytes:
       <w:b/>
       <w:sz w:val="24"/>
       <w:szCs w:val="24"/>
-      <w:color w:val="1F3864"/>
+      <w:color w:val="auto"/>
     </w:rPr>
   </w:style>
 
@@ -109,7 +109,7 @@ def build_default_styles_xml() -> bytes:
       <w:b/>
       <w:sz w:val="22"/>
       <w:szCs w:val="22"/>
-      <w:color w:val="1F3864"/>
+      <w:color w:val="auto"/>
     </w:rPr>
   </w:style>
 
@@ -126,7 +126,7 @@ def build_default_styles_xml() -> bytes:
       <w:i/>
       <w:sz w:val="20"/>
       <w:szCs w:val="20"/>
-      <w:color w:val="595959"/>
+      <w:color w:val="auto"/>
     </w:rPr>
   </w:style>
 

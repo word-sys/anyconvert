@@ -28,6 +28,7 @@ class TextWord:
     color: Color
     is_bold: bool = False
     is_italic: bool = False
+    is_underline: bool = False
     elements: List[TextElement] = field(default_factory=list)
 
     @property
