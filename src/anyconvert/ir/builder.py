@@ -421,19 +421,8 @@ class DocumentIRBuilder:
         all_clusters: List[ParagraphCluster] = []
         for lb in layout_blocks:
             if lb.lines:
-                if is_canvas:
-                    for line in lb.lines:
-                        all_clusters.append(
-                            ParagraphCluster(
-                                lines=[line],
-                                bbox=line.bbox,
-                                alignment=LayoutAlignment.LEFT,
-                                line_spacing=1.15,
-                            )
-                        )
-                else:
-                    clusters = cluster_lines_to_paragraphs(lb.lines, container_bbox=lb.bbox)
-                    all_clusters.extend(clusters)
+                clusters = cluster_lines_to_paragraphs(lb.lines, container_bbox=lb.bbox)
+                all_clusters.extend(clusters)
 
         # Classify headings and lists globally across all page clusters
         if all_clusters:

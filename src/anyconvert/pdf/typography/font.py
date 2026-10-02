@@ -104,32 +104,14 @@ def normalize_font_family_and_style(raw_name: str) -> Tuple[str, bool, bool]:
     clean = re.sub(r"^[A-Za-z0-9]{6}\+", "", raw_name).strip().lstrip("/")
 
     # Detect style keywords
-    is_bold = bool(
-        re.search(
-            r"\b(Bold|Black|Heavy|Semibold)\b|-(Bold|Black|Heavy)",
-            clean,
-            re.IGNORECASE,
-        )
-    )
-    is_italic = bool(
-        re.search(
-            r"\b(Italic|Oblique|Slanted)\b|-(Italic|Oblique)",
-            clean,
-            re.IGNORECASE,
-        )
-    )
+    is_bold = bool(re.search(r"Bold|Black|Heavy|Semibold", clean, re.IGNORECASE))
+    is_italic = bool(re.search(r"Italic|Oblique|Slanted", clean, re.IGNORECASE))
 
     # Clean family name
     fam = re.sub(
-        r"-(Regular|Bold|Italic|Oblique|BoldItalic|BoldOblique|Book|Medium|MT|PS).*$",
+        r"[-,\s]+(Regular|Bold|Italic|Oblique|BoldItalic|BoldOblique|Book|Medium|MT|PS).*$",
         "",
         clean,
-        flags=re.IGNORECASE,
-    )
-    fam = re.sub(
-        r"\s+(Regular|Bold|Italic|Oblique|Bold\s+Italic|Bold\s+Oblique|Book|Medium)$",
-        "",
-        fam,
         flags=re.IGNORECASE,
     ).strip()
     return (fam if fam else clean, is_bold, is_italic)

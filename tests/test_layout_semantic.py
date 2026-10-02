@@ -438,3 +438,67 @@ def test_detect_repeating_headers_footers_multi_page() -> None:
 
     assert "Running Header Company Inc" in rep_headers
     assert "Confidential Footer" in rep_footers
+
+
+def test_cluster_characters_to_words_explicit_spaces() -> None:
+    """Verify that explicit space characters prevent word concatenation."""
+    from anyconvert.layout.cluster import cluster_characters_to_words
+    from anyconvert.pdf.content.interpreter import TextElement
+
+    # Simulating PDF stream with explicit space character: "Hello" " " "World"
+    elements = [
+        TextElement("H", BoundingBox(10.0, 100.0, 16.0, 112.0), Point(10.0, 100.0), "Aptos", 12.0, Color.black()),
+        TextElement("e", BoundingBox(16.0, 100.0, 22.0, 112.0), Point(16.0, 100.0), "Aptos", 12.0, Color.black()),
+        TextElement("l", BoundingBox(22.0, 100.0, 25.0, 112.0), Point(22.0, 100.0), "Aptos", 12.0, Color.black()),
+        TextElement("l", BoundingBox(25.0, 100.0, 28.0, 112.0), Point(25.0, 100.0), "Aptos", 12.0, Color.black()),
+        TextElement("o", BoundingBox(28.0, 100.0, 34.0, 112.0), Point(28.0, 100.0), "Aptos", 12.0, Color.black()),
+        TextElement(" ", BoundingBox(34.0, 100.0, 36.4, 112.0), Point(34.0, 100.0), "Aptos", 12.0, Color.black()),
+        TextElement("W", BoundingBox(36.4, 100.0, 44.0, 112.0), Point(36.4, 100.0), "Aptos", 12.0, Color.black()),
+        TextElement("o", BoundingBox(44.0, 100.0, 50.0, 112.0), Point(44.0, 100.0), "Aptos", 12.0, Color.black()),
+        TextElement("r", BoundingBox(50.0, 100.0, 54.0, 112.0), Point(50.0, 100.0), "Aptos", 12.0, Color.black()),
+        TextElement("l", BoundingBox(54.0, 100.0, 57.0, 112.0), Point(54.0, 100.0), "Aptos", 12.0, Color.black()),
+        TextElement("d", BoundingBox(57.0, 100.0, 63.0, 112.0), Point(57.0, 100.0), "Aptos", 12.0, Color.black()),
+    ]
+    words = cluster_characters_to_words(elements)
+    assert len(words) == 2
+    assert words[0].text == "Hello"
+    assert words[1].text == "World"
+
+
+def test_normalize_font_family_and_style_comma() -> None:
+    """Verify comma-separated font style stripping (e.g. Aptos,Bold)."""
+    from anyconvert.pdf.typography.font import normalize_font_family_and_style
+
+    family, bold, italic = normalize_font_family_and_style("Aptos,Bold")
+    assert family == "Aptos"
+    assert bold is True
+    assert italic is False
+
+    family2, bold2, italic2 = normalize_font_family_and_style("Arial,BoldItalic")
+    assert family2 == "Arial"
+    assert bold2 is True
+    assert italic2 is True
+
+
+def test_detect_borderless_tables_gutter_crossing() -> None:
+    """Verify that regular text lines with words spanning across candidate gutters are rejected."""
+    # Line 1: words at x=50..120 and x=130..200
+    # Line 2: continuous long word at x=80..160 spanning across x=130
+    # Line 3: words at x=50..100 and x=140..210
+    l1 = make_line("First Second", 50, 100)
+    l1.words = [
+        TextWord("First", BoundingBox(50, 100, 120, 112), 110, "H", 10, Color.black()),
+        TextWord("Second", BoundingBox(130, 100, 200, 112), 110, "H", 10, Color.black()),
+    ]
+    l2 = make_line("CrossingWord", 80, 120)
+    l2.words = [
+        TextWord("CrossingWord", BoundingBox(80, 120, 160, 132), 130, "H", 10, Color.black()),
+    ]
+    l3 = make_line("Third Fourth", 50, 140)
+    l3.words = [
+        TextWord("Third", BoundingBox(50, 140, 100, 152), 150, "H", 10, Color.black()),
+        TextWord("Fourth", BoundingBox(140, 140, 210, 152), 150, "H", 10, Color.black()),
+    ]
+
+    tbls = detect_borderless_tables([l1, l2, l3], min_columns=2, min_rows=3)
+    assert len(tbls) == 0

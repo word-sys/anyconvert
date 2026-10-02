@@ -70,14 +70,14 @@ class TextLine:
 def cluster_characters_to_words(
     elements: Sequence[TextElement],
     page_height: Optional[float] = None,
-    space_width_factor: float = 0.20,
+    space_width_factor: float = 0.15,
 ) -> List[TextWord]:
     """Cluster raw text elements into words using geometric adjacency and font metrics.
 
     Args:
         elements: Sequence of TextElement objects from the content interpreter.
         page_height: If provided, transforms PDF coordinates (bottom-left) to document space (top-left).
-        space_width_factor: Threshold factor of font size determining word breaks (default 0.20).
+        space_width_factor: Threshold factor of font size determining word breaks (default 0.15).
 
     Returns:
         List of TextWord objects ordered by reading position.
@@ -102,7 +102,7 @@ def cluster_characters_to_words(
         return []
 
     # 2. Decompose elements that contain embedded whitespace (e.g. "(Hello World)" from single Tj)
-    atomic_tokens: List[Tuple[str, BoundingBox, float, TextElement]] = []
+    atomic_tokens: List[Tuple[str, BoundingBox, float, TextElement, bool]] = []
     for el, bbox, baseline_y in normalized_elements:
         raw_text = el.text
         if " " in raw_text or "\t" in raw_text:
@@ -118,18 +118,18 @@ def cluster_characters_to_words(
                 tok_bbox = BoundingBox(curr_x, bbox.y0, curr_x + tok_w, bbox.y1)
                 curr_x += tok_w
 
-                if not tok.isspace() and tok:
-                    atomic_tokens.append((tok, tok_bbox, baseline_y, el))
+                if tok:
+                    atomic_tokens.append((tok, tok_bbox, baseline_y, el, tok.isspace()))
         else:
-            atomic_tokens.append((raw_text, bbox, baseline_y, el))
+            atomic_tokens.append((raw_text, bbox, baseline_y, el, False))
 
     if not atomic_tokens:
         return []
 
     # 3. Sort atomic tokens top-to-bottom, left-to-right
     # Bucket into horizontal lines using baseline proximity
-    def sort_key(item: Tuple[str, BoundingBox, float, TextElement]) -> Tuple[float, float]:
-        _, b, base, _ = item
+    def sort_key(item: Tuple[str, BoundingBox, float, TextElement, bool]) -> Tuple[float, float]:
+        _, b, base, _, _ = item
         return (round(base, 1), b.x0)
 
     atomic_tokens.sort(key=sort_key)
@@ -146,7 +146,27 @@ def cluster_characters_to_words(
     curr_bold: bool = False
     curr_italic: bool = False
 
-    for tok_text, tok_bbox, tok_base, el in atomic_tokens:
+    for tok_text, tok_bbox, tok_base, el, is_space in atomic_tokens:
+        if is_space:
+            if curr_text and curr_bbox is not None:
+                words.append(
+                    TextWord(
+                        text="".join(curr_text),
+                        bbox=curr_bbox,
+                        baseline_y=curr_baseline,
+                        font_name=curr_font,
+                        font_size=curr_size,
+                        color=curr_color if curr_color is not None else el.color,
+                        is_bold=curr_bold,
+                        is_italic=curr_italic,
+                        elements=curr_elements,
+                    )
+                )
+                curr_text = []
+                curr_bbox = None
+                curr_elements = []
+            continue
+
         if not curr_text:
             # Start first word
             curr_text = [tok_text]

@@ -94,15 +94,16 @@ def detect_alignment(
     if len(lines) == 1:
         line = lines[0]
         c_width = container_x1 - container_x0
-        # Check center alignment
-        line_center = (line.bbox.x0 + line.bbox.x1) / 2.0
-        container_center = (container_x0 + container_x1) / 2.0
-        if abs(line_center - container_center) <= tolerance:
-            return Alignment.CENTER
+        # A single line can only be centered or right-aligned if the container is wider than the line
+        if c_width > line.bbox.width + tolerance * 2:
+            line_center = (line.bbox.x0 + line.bbox.x1) / 2.0
+            container_center = (container_x0 + container_x1) / 2.0
+            if abs(line_center - container_center) <= tolerance:
+                return Alignment.CENTER
 
-        # Check right alignment
-        if abs(line.bbox.x1 - container_x1) <= tolerance and line.bbox.x0 > container_x0 + tolerance * 2:
-            return Alignment.RIGHT
+            # Check right alignment
+            if abs(line.bbox.x1 - container_x1) <= tolerance:
+                return Alignment.RIGHT
 
         # Default single line to left
         return Alignment.LEFT

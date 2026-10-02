@@ -179,6 +179,7 @@ class DocxEmitter(BaseEmitter):
                             used_fonts=used_fonts,
                             image_counter_ref=[image_counter],
                             mode=mode,
+                            page_width=page.width,
                         )
                         if b_xml:
                             body_xml_lines.append(b_xml)
@@ -193,6 +194,7 @@ class DocxEmitter(BaseEmitter):
                         used_fonts=used_fonts,
                         image_counter_ref=[image_counter],
                         mode=mode,
+                        page_width=page.width,
                     )
                     if b_xml:
                         body_xml_lines.append(b_xml)
@@ -299,10 +301,11 @@ class DocxEmitter(BaseEmitter):
         used_fonts: Set[str],
         image_counter_ref: List[int],
         mode: ConversionMode,
+        page_width: float = 612.0,
     ) -> str:
         """Render a single BlockNode to WordprocessingML XML string."""
         if isinstance(block, Paragraph):
-            return self._render_paragraph(block, used_fonts=used_fonts, mode=mode)
+            return self._render_paragraph(block, used_fonts=used_fonts, mode=mode, page_width=page_width)
         elif isinstance(block, Table):
             return self._render_table(block, used_fonts=used_fonts)
         elif isinstance(block, ImageBlock):
@@ -323,6 +326,7 @@ class DocxEmitter(BaseEmitter):
         p: Paragraph,
         used_fonts: Set[str],
         mode: ConversionMode,
+        page_width: float = 612.0,
     ) -> str:
         """Render a DIR Paragraph to <w:p>."""
         p_pr_elements: List[str] = []
@@ -334,7 +338,9 @@ class DocxEmitter(BaseEmitter):
 
         # 2. Canvas mode absolute frame placement (sequence #5)
         if mode == ConversionMode.CANVAS and p.bbox is not None:
-            w_dxa = pt_to_dxa(p.bbox.width + 24.0)
+            max_avail_w = max(p.bbox.width, page_width - p.bbox.x0 - 36.0)
+            calc_w = min(max_avail_w, max(p.bbox.width + 48.0, p.bbox.width * 1.15))
+            w_dxa = pt_to_dxa(calc_w)
             h_dxa = pt_to_dxa(p.bbox.height)
             x_dxa = pt_to_dxa(p.bbox.x0)
             y_dxa = pt_to_dxa(p.bbox.y0)

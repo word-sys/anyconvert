@@ -115,7 +115,9 @@ class OdtEmitter(BaseEmitter):
         auto_styles.append(
             '  <style:style style:name="Frame_Default" style:family="graphic">\n'
             '    <style:graphic-properties style:wrap="none" style:vertical-pos="from-top" style:vertical-rel="page" '
-            'style:horizontal-pos="from-left" style:horizontal-rel="page" draw:fill="none" draw:stroke="none" fo:padding="0pt" fo:margin="0pt"/>\n'
+            'style:horizontal-pos="from-left" style:horizontal-rel="page" draw:fill="none" draw:stroke="none" '
+            'draw:auto-grow-height="true" fo:padding="0pt" fo:padding-top="0pt" fo:padding-bottom="0pt" '
+            'fo:padding-left="0pt" fo:padding-right="0pt" fo:margin="0pt"/>\n'
             '  </style:style>'
         )
 
@@ -246,6 +248,7 @@ class OdtEmitter(BaseEmitter):
                 t_style_map=t_style_map,
                 used_fonts=used_fonts,
                 page_num=page_num,
+                page_width=page_width,
                 mode=mode,
             )
         elif isinstance(block, Table):
@@ -285,7 +288,8 @@ class OdtEmitter(BaseEmitter):
         t_style_map: Dict[Tuple[str, float, str, bool, bool, bool, bool], str],
         used_fonts: Set[str],
         page_num: int,
-        mode: ConversionMode,
+        page_width: float = 595.3,
+        mode: ConversionMode = ConversionMode.FLOW,
     ) -> str:
         """Render a DIR Paragraph to <text:p> or <text:h>."""
         align_str = _ALIGN_MAP.get(p.alignment, "left")
@@ -342,7 +346,9 @@ class OdtEmitter(BaseEmitter):
         if mode == ConversionMode.CANVAS and p.bbox is not None:
             x_pt = f"{p.bbox.x0:.1f}pt"
             y_pt = f"{p.bbox.y0:.1f}pt"
-            w_pt = f"{p.bbox.width + 24.0:.1f}pt"
+            max_avail_w = max(p.bbox.width, page_width - p.bbox.x0 - 36.0)
+            calc_w = min(max_avail_w, max(p.bbox.width + 48.0, p.bbox.width * 1.15))
+            w_pt = f"{calc_w:.1f}pt"
             h_pt = f"{p.bbox.height:.1f}pt"
             return (
                 f'        <draw:frame draw:style-name="Frame_Default" svg:x="{x_pt}" svg:y="{y_pt}" '

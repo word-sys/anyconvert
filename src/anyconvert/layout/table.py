@@ -321,22 +321,37 @@ def detect_borderless_tables(
     if len(candidate_lines) < min_rows:
         return []
 
-    # Check for consistent column start positions across consecutive candidate lines
-    # Collect all word x0 coordinates
-    x0_coords: List[float] = []
+    # Check for consistent column start positions across candidate lines
+    # Words in a genuine table align at distinct column start positions
+    tolerance = 8.0
+    col_counts: Dict[float, int] = {}
     for _, words in candidate_lines:
         for w in words:
-            x0_coords.append(w.bbox.x0)
+            x_snap = round(w.bbox.x0 / tolerance) * tolerance
+            col_counts[x_snap] = col_counts.get(x_snap, 0) + 1
 
-    clustered_x = _cluster_coords(x0_coords, tolerance=8.0)
-    # Filter columns separated by at least gutter_min
-    valid_cols: List[float] = [clustered_x[0]]
-    for x in clustered_x[1:]:
-        if x - valid_cols[-1] >= gutter_min:
+    min_line_freq = max(3, int(len(candidate_lines) * 0.55))
+    frequent_cols = sorted([x for x, count in col_counts.items() if count >= min_line_freq])
+
+    clustered_x = _cluster_coords(frequent_cols, tolerance=tolerance * 2)
+    valid_cols: List[float] = []
+    for x in clustered_x:
+        if not valid_cols or (x - valid_cols[-1] >= gutter_min):
             valid_cols.append(x)
 
     if len(valid_cols) < min_columns or len(valid_cols) > 8:
         return []
+
+    # Check for vertical gutters: words must not span across column boundaries
+    for c_idx in range(len(valid_cols) - 1):
+        next_c_x = valid_cols[c_idx + 1]
+        crossings = 0
+        for _, words in candidate_lines:
+            for w in words:
+                if w.bbox.x0 < next_c_x - tolerance and w.bbox.x1 > next_c_x + tolerance:
+                    crossings += 1
+        if crossings > 0:
+            return []
 
     num_cols = len(valid_cols)
     table_rows: List[TableRowLayout] = []
