@@ -4,8 +4,8 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "anyconvert"
-version = "0.1.8"
-description = "Native document conversion engine"
+version = "0.1.9"
+description = "Native PDF-to-Office document conversion engine"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
@@ -14,6 +14,7 @@ authors = [
 ]
 keywords = [
     "pdf",
+    "python",
     "converter",
     "docx",
     "pptx",
