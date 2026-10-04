@@ -287,3 +287,22 @@ def test_odp_emitter_empty_doc_raises() -> None:
     emitter = OdpEmitter()
     with pytest.raises(SerializationError):
         emitter.emit(doc_ir)
+
+
+def test_odt_canvas_line_breaks_and_indents() -> None:
+    """Verify ODT emitter handles multi-line runs with text:line-break and zeroes frame indents."""
+    para = Paragraph(
+        runs=[TextRun("Line A\nLine B", "Helvetica", 12.0, Color.black())],
+        bbox=BoundingBox(50.0, 50.0, 200.0, 100.0),
+        indent_right=30.0,
+    )
+    doc_ir = DocumentIR(pages=[DocumentPage(1, 612.0, 792.0, blocks=[para])])
+    emitter = OdtEmitter()
+    odt_bytes = emitter.emit(doc_ir, mode=ConversionMode.CANVAS)
+    pkg = ODFPackage.parse(odt_bytes)
+    content_xml = pkg.get_part("content.xml").content.decode("utf-8")
+
+    assert "<text:line-break/>" in content_xml
+    assert "Line A" in content_xml
+    assert "Line B" in content_xml
+

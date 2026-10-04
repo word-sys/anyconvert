@@ -161,13 +161,58 @@ def _words_to_runs(words: Sequence[TextWord]) -> List[TextRun]:
     return runs
 
 
-def _paragraph_cluster_to_dir(p: ParagraphCluster) -> Paragraph:
+def _paragraph_cluster_to_dir(p: ParagraphCluster, preserve_line_breaks: bool = False) -> Paragraph:
     """Convert a layout ParagraphCluster into a DIR Paragraph."""
-    all_words: List[TextWord] = []
-    for line in p.lines:
-        all_words.extend(line.words)
+    if preserve_line_breaks and len(p.lines) > 1:
+        # Determine if this paragraph is continuous multi-line wrapped prose
+        is_wrapped_body = (
+            p.bbox.width >= 300.0
+            and len(p.lines) >= 3
+            and sum(1 for l in p.lines[:-1] if l.bbox.width >= 0.75 * p.bbox.width) >= max(1, len(p.lines) - 2)
+        )
+        all_runs: List[TextRun] = []
+        for line_idx, line in enumerate(p.lines):
+            line_runs = _words_to_runs(line.words)
+            if line_runs and line_idx < len(p.lines) - 1:
+                needs_break = not is_wrapped_body or (line.bbox.width < 0.70 * p.bbox.width)
+                last_r = line_runs[-1]
+                if needs_break:
+                    line_runs[-1] = TextRun(
+                        text=last_r.text + "\n",
+                        font_name=last_r.font_name,
+                        font_size=last_r.font_size,
+                        color=last_r.color,
+                        is_bold=last_r.is_bold,
+                        is_italic=last_r.is_italic,
+                        is_underline=last_r.is_underline,
+                        is_strikethrough=last_r.is_strikethrough,
+                        tracking=last_r.tracking,
+                        baseline_offset=last_r.baseline_offset,
+                        bbox=last_r.bbox,
+                    )
+                else:
+                    if not last_r.text.endswith(" "):
+                        line_runs[-1] = TextRun(
+                            text=last_r.text + " ",
+                            font_name=last_r.font_name,
+                            font_size=last_r.font_size,
+                            color=last_r.color,
+                            is_bold=last_r.is_bold,
+                            is_italic=last_r.is_italic,
+                            is_underline=last_r.is_underline,
+                            is_strikethrough=last_r.is_strikethrough,
+                            tracking=last_r.tracking,
+                            baseline_offset=last_r.baseline_offset,
+                            bbox=last_r.bbox,
+                        )
+            all_runs.extend(line_runs)
+        runs = all_runs
+    else:
+        all_words: List[TextWord] = []
+        for line in p.lines:
+            all_words.extend(line.words)
+        runs = _words_to_runs(all_words)
 
-    runs = _words_to_runs(all_words)
     dir_align = _ALIGN_MAP.get(p.alignment, DIRAlignment.LEFT)
     dir_heading = _HEADING_MAP.get(p.heading_level) if p.heading_level else None
 
@@ -430,7 +475,10 @@ class DocumentIRBuilder:
             classify_headings(all_clusters, body_size=modal_body_size)
             process_list_paragraphs(all_clusters)
 
-        dir_paragraphs = [_paragraph_cluster_to_dir(pc) for pc in all_clusters]
+        is_canvas = "canvas" in str(mode).lower()
+        dir_paragraphs = [
+            _paragraph_cluster_to_dir(pc, preserve_line_breaks=is_canvas) for pc in all_clusters
+        ]
 
 
         # 7. Convert Tables to DIR

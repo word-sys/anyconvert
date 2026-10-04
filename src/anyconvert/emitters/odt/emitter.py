@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import datetime
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 import xml.etree.ElementTree as ET
 
 from anyconvert.common.color import Color
@@ -151,6 +151,7 @@ class OdtEmitter(BaseEmitter):
                         page_height=page.height,
                         used_fonts=used_fonts,
                         mode=mode,
+                        page_blocks=page.blocks,
                     )
                     if b_xml:
                         page_draw_elements.append(b_xml)
@@ -175,6 +176,7 @@ class OdtEmitter(BaseEmitter):
                         page_height=page.height,
                         used_fonts=used_fonts,
                         mode=mode,
+                        page_blocks=page.blocks,
                     )
                     if b_xml:
                         body_elements.append(b_xml)
@@ -238,6 +240,7 @@ class OdtEmitter(BaseEmitter):
         page_height: float,
         used_fonts: Set[str],
         mode: ConversionMode,
+        page_blocks: Optional[Sequence[BlockNode]] = None,
     ) -> str:
         """Render a BlockNode to ODF XML string."""
         if isinstance(block, Paragraph):
@@ -250,6 +253,7 @@ class OdtEmitter(BaseEmitter):
                 page_num=page_num,
                 page_width=page_width,
                 mode=mode,
+                page_blocks=page_blocks,
             )
         elif isinstance(block, Table):
             return self._render_table(
@@ -290,14 +294,22 @@ class OdtEmitter(BaseEmitter):
         page_num: int,
         page_width: float = 595.3,
         mode: ConversionMode = ConversionMode.FLOW,
+        page_blocks: Optional[Sequence[BlockNode]] = None,
     ) -> str:
         """Render a DIR Paragraph to <text:p> or <text:h>."""
         align_str = _ALIGN_MAP.get(p.alignment, "left")
-        sp_before = f"{p.space_before:.1f}pt"
-        sp_after = f"{p.space_after:.1f}pt"
-        ind_l = f"{p.indent_left:.1f}pt"
-        ind_r = f"{p.indent_right:.1f}pt"
-        ind_f = f"{p.indent_first_line:.1f}pt"
+        if mode == ConversionMode.CANVAS:
+            sp_before = "0.0pt"
+            sp_after = "0.0pt"
+            ind_l = "0.0pt"
+            ind_r = "0.0pt"
+            ind_f = "0.0pt"
+        else:
+            sp_before = f"{p.space_before:.1f}pt"
+            sp_after = f"{p.space_after:.1f}pt"
+            ind_l = f"{p.indent_left:.1f}pt"
+            ind_r = f"{p.indent_right:.1f}pt"
+            ind_f = f"{p.indent_first_line:.1f}pt"
 
         style_key = (align_str, sp_before, sp_after, ind_l, ind_r, ind_f)
         if style_key not in p_style_map:
@@ -344,10 +356,20 @@ class OdtEmitter(BaseEmitter):
             elem_xml = f'      <text:p text:style-name="{p_style_name}">{content_str}</text:p>'
 
         if mode == ConversionMode.CANVAS and p.bbox is not None:
+            min_right = page_width - 36.0
+            if page_blocks:
+                for o in page_blocks:
+                    if o is p or not hasattr(o, "bbox") or o.bbox is None:
+                        continue
+                    if not (o.bbox.y1 <= p.bbox.y0 or o.bbox.y0 >= p.bbox.y1):
+                        if o.bbox.x0 >= p.bbox.x1 - 2.0:
+                            min_right = min(min_right, o.bbox.x0 - 4.0)
+
+            avail_w = max(p.bbox.width, min_right - p.bbox.x0)
+            is_left = p.alignment == Alignment.LEFT or p.alignment is None
+            calc_w = avail_w if is_left else min(avail_w, max(p.bbox.width + 12.0, p.bbox.width * 1.05))
             x_pt = f"{p.bbox.x0:.1f}pt"
             y_pt = f"{p.bbox.y0:.1f}pt"
-            max_avail_w = max(p.bbox.width, page_width - p.bbox.x0 - 36.0)
-            calc_w = min(max_avail_w, max(p.bbox.width + 48.0, p.bbox.width * 1.15))
             w_pt = f"{calc_w:.1f}pt"
             h_pt = f"{p.bbox.height:.1f}pt"
             return (
@@ -410,6 +432,10 @@ class OdtEmitter(BaseEmitter):
             t_style_name = t_style_map[t_key]
 
         escaped_txt = xml_escape(run.text)
+        if "\n" in escaped_txt:
+            parts = escaped_txt.split("\n")
+            span_inner = "<text:line-break/>".join(parts)
+            return f'<text:span text:style-name="{t_style_name}">{span_inner}</text:span>'
         return f'<text:span text:style-name="{t_style_name}">{escaped_txt}</text:span>'
 
     def _render_table(

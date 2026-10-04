@@ -110,11 +110,16 @@ def detect_alignment(
 
     # Multi-line alignment analysis
     # 1. Justified: body lines (all except possibly the last line) span full container width
-    if len(lines) >= 2:
+    if len(lines) >= 3:
         body_lines = lines[:-1]
         all_left_align_container = all(abs(l.bbox.x0 - container_x0) <= tolerance for l in lines)
         body_right_align_container = all(abs(l.bbox.x1 - container_x1) <= tolerance for l in body_lines)
         if all_left_align_container and body_right_align_container:
+            return Alignment.JUSTIFIED
+    elif len(lines) == 2:
+        all_left_align_container = all(abs(l.bbox.x0 - container_x0) <= tolerance for l in lines)
+        all_right_align_container = all(abs(l.bbox.x1 - container_x1) <= tolerance for l in lines)
+        if all_left_align_container and all_right_align_container:
             return Alignment.JUSTIFIED
 
     # 2. Centered: lines are centered relative to container center
@@ -179,7 +184,7 @@ def cluster_lines_to_paragraphs(
 
     median_gap = sorted(gaps)[len(gaps) // 2] if gaps else 4.0
     # Safe break threshold
-    break_gap_threshold = max(8.0, median_gap * max_line_gap_factor)
+    break_gap_threshold = max(3.0, median_gap * max_line_gap_factor)
 
     # Group lines into paragraph buckets
     para_buckets: List[List[TextLine]] = [[sorted_lines[0]]]
@@ -194,7 +199,7 @@ def cluster_lines_to_paragraphs(
         large_gap = gap > break_gap_threshold
 
         # 2. Substantial font size change (e.g. heading following paragraph)
-        font_change = abs(next_line.font_size - curr_line.font_size) > 1.5
+        font_change = abs(next_line.font_size - curr_line.font_size) > max(2.5, 0.2 * curr_line.font_size)
 
         # 3. First-line indent on next line (traditional paragraph indent)
         indent_delta = next_line.bbox.x0 - curr_line.bbox.x0

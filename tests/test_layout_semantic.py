@@ -502,3 +502,116 @@ def test_detect_borderless_tables_gutter_crossing() -> None:
 
     tbls = detect_borderless_tables([l1, l2, l3], min_columns=2, min_rows=3)
     assert len(tbls) == 0
+
+
+def test_phantom_whitespace_filtering() -> None:
+    """Verify that standalone whitespace glyphs directly overlapping visible characters are ignored."""
+    from anyconvert.layout.cluster import cluster_characters_to_words
+    from anyconvert.pdf.content.interpreter import TextElement
+    from anyconvert.common.geometry import Point
+
+    # Glyph 'i' at x=100..110, y=700 (PDF bottom-up)
+    el_i = TextElement(
+        text="i",
+        bbox=BoundingBox(100.0, 700.0, 110.0, 715.0),
+        origin=Point(100.0, 700.0),
+        font_name="DejaVuSansMono",
+        font_size=15.0,
+        color=Color.black(),
+    )
+    # Phantom space at x=100..110, y=700 overlapping 'i'
+    el_sp = TextElement(
+        text=" ",
+        bbox=BoundingBox(100.0, 700.0, 110.0, 715.0),
+        origin=Point(100.0, 700.0),
+        font_name="DejaVuSansMono",
+        font_size=15.0,
+        color=Color.black(),
+    )
+    # Glyph 'z' at x=110..120, y=700
+    el_z = TextElement(
+        text="z",
+        bbox=BoundingBox(110.0, 700.0, 120.0, 715.0),
+        origin=Point(110.0, 700.0),
+        font_name="DejaVuSansMono",
+        font_size=15.0,
+        color=Color.black(),
+    )
+
+    words = cluster_characters_to_words([el_i, el_sp, el_z], page_height=800.0)
+    # 'i' and 'z' should merge into 'iz' without splitting due to phantom space
+    assert len(words) == 1
+    assert words[0].text == "iz"
+
+
+def test_builder_canvas_mode_preserves_line_breaks() -> None:
+    """Verify that multi-line paragraph clusters in canvas mode preserve hard line breaks."""
+    from anyconvert.ir.builder import _paragraph_cluster_to_dir
+
+    w1 = TextWord("Hello", BoundingBox(50, 50, 90, 65), 60, "Calibri", 12.0, Color.black())
+    w2 = TextWord("World", BoundingBox(50, 70, 90, 85), 80, "Calibri", 12.0, Color.black())
+    l1 = TextLine([w1], BoundingBox(50, 50, 90, 65), 60, "Hello", "Calibri", 12.0, Color.black())
+    l2 = TextLine([w2], BoundingBox(50, 70, 90, 85), 80, "World", "Calibri", 12.0, Color.black())
+    pc = ParagraphCluster(lines=[l1, l2], bbox=BoundingBox(50, 50, 90, 85))
+
+    # Canvas mode should preserve line break between lines
+    p_canvas = _paragraph_cluster_to_dir(pc, preserve_line_breaks=True)
+    assert len(p_canvas.runs) == 2
+    assert p_canvas.runs[0].text == "Hello\n"
+    assert p_canvas.runs[1].text == "World"
+
+    # Flow mode should merge lines with spaces for reflow
+    p_flow = _paragraph_cluster_to_dir(pc, preserve_line_breaks=False)
+    assert len(p_flow.runs) == 1
+    assert p_flow.runs[0].text == "Hello World"
+
+
+def test_cluster_lines_split_tight_gap() -> None:
+    """Verify that tight median line spacing (e.g. ~1.1pt) detects paragraph breaks on 6-7pt gaps."""
+    # 3 lines with 1.1pt gap, followed by a 6.7pt gap, followed by 2 lines with 1.1pt gap
+    lines = [
+        make_line("This update brings", 355.0, 24.7, width=145.0, height=18.0),
+        make_line("Flatpak and", 355.0, 43.8, width=89.0, height=18.0),       # gap = 1.1
+        make_line("Feature Update", 355.0, 62.9, width=128.0, height=18.0),     # gap = 1.1
+        # Gap of 6.7pt (87.6 - 80.9 = 6.7)
+        make_line("Flatpak update will", 355.0, 87.6, width=150.0, height=18.0),
+        make_line("be released shortly!", 355.0, 106.7, width=170.0, height=18.0),
+    ]
+
+    paras = cluster_lines_to_paragraphs(lines)
+    assert len(paras) == 2
+    assert [l.text for l in paras[0].lines] == ["This update brings", "Flatpak and", "Feature Update"]
+    assert [l.text for l in paras[1].lines] == ["Flatpak update will", "be released shortly!"]
+
+
+def test_detect_alignment_left_two_lines_not_justified() -> None:
+    """Ensure a 2-line left-aligned paragraph is not falsely detected as JUSTIFIED."""
+    lines = [
+        make_line("This update included modernized", 41.2, 174.0, width=298.6),
+        make_line("Workspaces!", 41.2, 193.2, width=105.9),
+    ]
+    # Container boundary is the block width
+    c_x0 = 41.2
+    c_x1 = 41.2 + 298.6
+    align = detect_alignment(lines, c_x0, c_x1)
+    assert align == Alignment.LEFT
+
+
+def test_builder_wrapped_body_does_not_force_line_breaks() -> None:
+    """Verify that multi-line wrapped body paragraphs flow naturally without forced line breaks in canvas mode."""
+    from anyconvert.ir.builder import _paragraph_cluster_to_dir
+
+    lines = [
+        make_line("First long continuous line of Turkish body paragraph text spanning wide margin.", 70.0, 100.0, width=440.0),
+        make_line("Second long continuous line of Turkish body paragraph text continuing the thought.", 70.0, 115.0, width=435.0),
+        make_line("Third line concludes the paragraph naturally.", 70.0, 130.0, width=250.0),
+    ]
+    pc = ParagraphCluster(lines=lines, bbox=BoundingBox(70.0, 100.0, 510.0, 142.0))
+    p = _paragraph_cluster_to_dir(pc, preserve_line_breaks=True)
+    full_text = "".join(r.text for r in p.runs)
+    # Wrapped body should not contain newlines forcing breaks
+    assert "\n" not in full_text
+    assert "First long continuous line" in full_text
+    assert "Second long continuous line" in full_text
+    assert "Third line concludes" in full_text
+

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import datetime
-from typing import Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional, Sequence, Set, Union
 import zipfile
 
 from anyconvert.common.color import Color
@@ -180,6 +180,7 @@ class DocxEmitter(BaseEmitter):
                             image_counter_ref=[image_counter],
                             mode=mode,
                             page_width=page.width,
+                            page_blocks=page.blocks,
                         )
                         if b_xml:
                             body_xml_lines.append(b_xml)
@@ -195,6 +196,7 @@ class DocxEmitter(BaseEmitter):
                         image_counter_ref=[image_counter],
                         mode=mode,
                         page_width=page.width,
+                        page_blocks=page.blocks,
                     )
                     if b_xml:
                         body_xml_lines.append(b_xml)
@@ -302,10 +304,17 @@ class DocxEmitter(BaseEmitter):
         image_counter_ref: List[int],
         mode: ConversionMode,
         page_width: float = 612.0,
+        page_blocks: Optional[Sequence[BlockNode]] = None,
     ) -> str:
         """Render a single BlockNode to WordprocessingML XML string."""
         if isinstance(block, Paragraph):
-            return self._render_paragraph(block, used_fonts=used_fonts, mode=mode, page_width=page_width)
+            return self._render_paragraph(
+                block,
+                used_fonts=used_fonts,
+                mode=mode,
+                page_width=page_width,
+                page_blocks=page_blocks,
+            )
         elif isinstance(block, Table):
             return self._render_table(block, used_fonts=used_fonts)
         elif isinstance(block, ImageBlock):
@@ -327,6 +336,7 @@ class DocxEmitter(BaseEmitter):
         used_fonts: Set[str],
         mode: ConversionMode,
         page_width: float = 612.0,
+        page_blocks: Optional[Sequence[BlockNode]] = None,
     ) -> str:
         """Render a DIR Paragraph to <w:p>."""
         p_pr_elements: List[str] = []
@@ -338,8 +348,18 @@ class DocxEmitter(BaseEmitter):
 
         # 2. Canvas mode absolute frame placement (sequence #5)
         if mode == ConversionMode.CANVAS and p.bbox is not None:
-            max_avail_w = max(p.bbox.width, page_width - p.bbox.x0 - 36.0)
-            calc_w = min(max_avail_w, max(p.bbox.width + 48.0, p.bbox.width * 1.15))
+            min_right = page_width - 36.0
+            if page_blocks:
+                for o in page_blocks:
+                    if o is p or not hasattr(o, "bbox") or o.bbox is None:
+                        continue
+                    if not (o.bbox.y1 <= p.bbox.y0 or o.bbox.y0 >= p.bbox.y1):
+                        if o.bbox.x0 >= p.bbox.x1 - 2.0:
+                            min_right = min(min_right, o.bbox.x0 - 4.0)
+
+            avail_w = max(p.bbox.width, min_right - p.bbox.x0)
+            is_left = p.alignment == Alignment.LEFT or p.alignment is None
+            calc_w = avail_w if is_left else min(avail_w, max(p.bbox.width + 12.0, p.bbox.width * 1.05))
             w_dxa = pt_to_dxa(calc_w)
             h_dxa = pt_to_dxa(p.bbox.height)
             x_dxa = pt_to_dxa(p.bbox.x0)
@@ -368,20 +388,21 @@ class DocxEmitter(BaseEmitter):
             )
 
         # 5. Indentation (sequence #22)
-        ind_left = pt_to_dxa(p.indent_left)
-        ind_right = pt_to_dxa(p.indent_right)
-        ind_first = pt_to_dxa(p.indent_first_line)
-        if ind_left > 0 or ind_right > 0 or ind_first != 0:
-            ind_attrs: List[str] = []
-            if ind_left > 0:
-                ind_attrs.append(f'w:left="{ind_left}"')
-            if ind_right > 0:
-                ind_attrs.append(f'w:right="{ind_right}"')
-            if ind_first > 0:
-                ind_attrs.append(f'w:firstLine="{ind_first}"')
-            elif ind_first < 0:
-                ind_attrs.append(f'w:hanging="{-ind_first}"')
-            p_pr_elements.append(f'      <w:ind {" ".join(ind_attrs)}/>')
+        if mode != ConversionMode.CANVAS:
+            ind_left = pt_to_dxa(p.indent_left)
+            ind_right = pt_to_dxa(p.indent_right)
+            ind_first = pt_to_dxa(p.indent_first_line)
+            if ind_left > 0 or ind_right > 0 or ind_first != 0:
+                ind_attrs: List[str] = []
+                if ind_left > 0:
+                    ind_attrs.append(f'w:left="{ind_left}"')
+                if ind_right > 0:
+                    ind_attrs.append(f'w:right="{ind_right}"')
+                if ind_first > 0:
+                    ind_attrs.append(f'w:firstLine="{ind_first}"')
+                elif ind_first < 0:
+                    ind_attrs.append(f'w:hanging="{-ind_first}"')
+                p_pr_elements.append(f'      <w:ind {" ".join(ind_attrs)}/>')
 
         # 6. Alignment (sequence #26)
         jc_val = _ALIGN_MAP.get(p.alignment, "left")
@@ -438,6 +459,10 @@ class DocxEmitter(BaseEmitter):
             r_pr_str = "      <w:rPr>\n" + "\n".join(r_pr_elements) + "\n      </w:rPr>\n"
 
         escaped_txt = xml_escape(run.text)
+        if "\n" in escaped_txt:
+            parts = escaped_txt.split("\n")
+            t_xml = "<w:br/>".join(f'<w:t xml:space="preserve">{p}</w:t>' for p in parts)
+            return f"      <w:r>\n{r_pr_str}        {t_xml}\n      </w:r>"
         return f"      <w:r>\n{r_pr_str}        <w:t xml:space=\"preserve\">{escaped_txt}</w:t>\n      </w:r>"
 
     def _render_table(self, table: Table, used_fonts: Set[str]) -> str:

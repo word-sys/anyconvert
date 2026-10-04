@@ -331,3 +331,24 @@ def test_docx_heading_color_preservation() -> None:
     doc_xml = pkg.get_part("word/document.xml").content.decode("utf-8")
     assert '<w:color w:val="000000"/>' in doc_xml
 
+
+def test_docx_canvas_line_breaks_and_indents() -> None:
+    """Verify DOCX emitter handles multi-line runs with w:br and suppresses frame indents."""
+    para = Paragraph(
+        runs=[TextRun("Line 1\nLine 2", "Calibri", 12.0, Color.black())],
+        bbox=BoundingBox(50.0, 50.0, 200.0, 100.0),
+        indent_right=30.0,
+    )
+    doc_ir = DocumentIR(pages=[DocumentPage(1, 612.0, 792.0, blocks=[para])])
+    emitter = DocxEmitter()
+    docx_bytes = emitter.emit(doc_ir, mode=ConversionMode.CANVAS)
+    pkg = OPCPackage.parse(docx_bytes)
+    doc_xml = pkg.get_part("word/document.xml").content.decode("utf-8")
+
+    assert "<w:br/>" in doc_xml
+    assert "<w:t xml:space=\"preserve\">Line 1</w:t>" in doc_xml
+    assert "<w:t xml:space=\"preserve\">Line 2</w:t>" in doc_xml
+    # Verify right indent is NOT emitted inside the canvas frame
+    assert '<w:ind w:right=' not in doc_xml
+
+

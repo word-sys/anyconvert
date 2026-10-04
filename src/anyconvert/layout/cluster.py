@@ -126,6 +126,25 @@ def cluster_characters_to_words(
     if not atomic_tokens:
         return []
 
+    # Filter phantom whitespace tokens that geometrically overlap with non-whitespace glyphs
+    non_spaces = [t for t in atomic_tokens if not t[4]]
+    if non_spaces:
+        clean_tokens: List[Tuple[str, BoundingBox, float, TextElement, bool]] = []
+        for t in atomic_tokens:
+            tok_text, tok_bbox, tok_base, el, is_space = t
+            if is_space:
+                overlap_found = False
+                for _, n_bbox, n_base, n_el, _ in non_spaces:
+                    if abs(tok_base - n_base) <= 0.35 * max(el.font_size, n_el.font_size):
+                        overlap = min(tok_bbox.x1, n_bbox.x1) - max(tok_bbox.x0, n_bbox.x0)
+                        if overlap > 0.4 * min(tok_bbox.width, n_bbox.width):
+                            overlap_found = True
+                            break
+                if overlap_found:
+                    continue
+            clean_tokens.append(t)
+        atomic_tokens = clean_tokens
+
     # 3. Sort atomic tokens top-to-bottom, left-to-right
     # Bucket into horizontal lines using baseline proximity
     def sort_key(item: Tuple[str, BoundingBox, float, TextElement, bool]) -> Tuple[float, float]:
