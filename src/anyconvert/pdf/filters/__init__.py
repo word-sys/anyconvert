@@ -15,6 +15,7 @@ from typing import Any, List, Optional, Union
 
 from anyconvert.exceptions import PDFUnsupportedFilterError
 from anyconvert.pdf.filters.ascii import ascii_85_decode, ascii_hex_decode
+from anyconvert.pdf.filters.ccitt import ccitt_decode
 from anyconvert.pdf.filters.flate import apply_predictor_reversal, flate_decode
 from anyconvert.pdf.filters.lzw import lzw_decode
 from anyconvert.pdf.filters.runlength import run_length_decode
@@ -46,6 +47,10 @@ _FILTER_MAP = {
     "DCT": "DCTDecode",
     "/DCTDecode": "DCTDecode",
     "/DCT": "DCTDecode",
+    "CCITTFaxDecode": "CCITTFaxDecode",
+    "CCF": "CCITTFaxDecode",
+    "/CCITTFaxDecode": "CCITTFaxDecode",
+    "/CCF": "CCITTFaxDecode",
 }
 
 
@@ -128,6 +133,8 @@ def decode_stream(
             current_data = ascii_hex_decode(current_data)
         elif f_clean == "RunLengthDecode":
             current_data = run_length_decode(current_data)
+        elif f_clean == "CCITTFaxDecode":
+            current_data = ccitt_decode(current_data, params=p_dict)
         elif f_clean == "DCTDecode":
             # DCTDecode is JPEG; raw stream bytes are already standard JPEG
             continue
@@ -143,6 +150,7 @@ __all__ = [
     "run_length_decode",
     "lzw_decode",
     "flate_decode",
+    "ccitt_decode",
     "apply_predictor_reversal",
     "decode_stream",
 ]
