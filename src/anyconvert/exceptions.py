@@ -5,6 +5,8 @@ anyconvert PDF parsing, layout reconstruction, intermediate representation,
 and document emission pipelines.
 """
 
+from __future__ import annotations
+
 from typing import Any, Dict, Optional
 
 

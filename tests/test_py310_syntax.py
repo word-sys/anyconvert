@@ -140,6 +140,17 @@ def test_all_source_and_test_files_compile() -> None:
     assert not all_violations, f"Found {len(all_violations)} Python 3.10 compatibility violation(s):\n" + "\n".join(all_violations)
 
 
+def test_all_src_files_have_future_annotations() -> None:
+    """Verify that every file in src/ includes 'from __future__ import annotations'."""
+    src_files = sorted(SRC_DIR.rglob("*.py"))
+    missing = [
+        str(p)
+        for p in src_files
+        if "from __future__ import annotations" not in p.read_text(encoding="utf-8")
+    ]
+    assert not missing, f"Missing 'from __future__ import annotations' in {len(missing)} files:\n" + "\n".join(missing)
+
+
 def test_scanner_detects_fstring_backslash() -> None:
     """Verify that scanner flags backslashes in f-string expressions."""
     if sys.version_info < (3, 12):

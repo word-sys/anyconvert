@@ -4,6 +4,8 @@ Provides serialization-agnostic ZIP container engines for DOCX, PPTX, ODT, and O
 documents adhering to ISO/IEC 29500-2 and ISO/IEC 26300 standards with zero dependencies.
 """
 
+from __future__ import annotations
+
 from anyconvert.packaging.odf import (
     MANIFEST_NS,
     MANIFEST_PART_NAME,

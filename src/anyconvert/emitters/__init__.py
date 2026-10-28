@@ -1,5 +1,7 @@
 """Document format emitters and serializers for anyconvert."""
 
+from __future__ import annotations
+
 from anyconvert.emitters.base import BaseEmitter, ConversionMode
 from anyconvert.emitters.docx import DocxEmitter
 from anyconvert.emitters.odp import OdpEmitter
