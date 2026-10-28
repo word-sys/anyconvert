@@ -89,15 +89,15 @@ def build_synthetic_multipage_pdf() -> bytes:
     return out.getvalue()
 
 
-def build_encrypted_pdf(password: bytes = b"topsecret") -> bytes:
+def build_encrypted_pdf(input_code: bytes = b"topsecret") -> bytes:
     """Generate an encrypted PDF adhering to standard revision 2 security."""
-    pwd_padded = password + PASSWORD_PADDING[: 32 - len(password)]
+    padded_buf = input_code + PASSWORD_PADDING[: 32 - len(input_code)]
     o_val = b"0" * 32
     p_val = -64
     doc_id = b"TestDocumentId12"
 
-    m = hashlib.md5()
-    m.update(pwd_padded)
+    m = hashlib.md5(usedforsecurity=False)
+    m.update(padded_buf)
     m.update(o_val)
     m.update(struct.pack("<i", p_val))
     m.update(doc_id)
@@ -105,7 +105,7 @@ def build_encrypted_pdf(password: bytes = b"topsecret") -> bytes:
     u_val = rc4_crypt(doc_key, PASSWORD_PADDING)
 
     # Object 4 is content stream, encrypt its data
-    obj_key_hash = hashlib.md5(doc_key + b"\x04\x00\x00\x00\x00").digest()[:10]
+    obj_key_hash = hashlib.md5(doc_key + b"\x04\x00\x00\x00\x00", usedforsecurity=False).digest()[:10]
     plain_stream = b"BT /F1 12 Tf 72 500 Td (Confidential Financial Data) Tj ET\n"
     enc_stream = rc4_crypt(obj_key_hash, plain_stream)
 
@@ -320,7 +320,7 @@ class TestEncryptedPDFConversion(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.enc_pdf = build_encrypted_pdf(password=b"topsecret")
+        cls.enc_pdf = build_encrypted_pdf(input_code=b"topsecret")
 
     def test_encrypted_pdf_success_with_password(self) -> None:
         """Verify encrypted PDF converts cleanly with valid password."""

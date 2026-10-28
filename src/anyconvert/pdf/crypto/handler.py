@@ -36,6 +36,16 @@ PASSWORD_PADDING: bytes = bytes([
 ])
 
 
+def _pdf_md5(payload: bytes = b"") -> hashlib._Hash:
+    """PDF ISO 32000-1 specification-mandated MD5 hash algorithm."""
+    return hashlib.md5(payload, usedforsecurity=False)
+
+
+def _pdf_sha256(payload: bytes = b"") -> hashlib._Hash:
+    """PDF ISO 32000-1 specification-mandated SHA-256 hash algorithm."""
+    return hashlib.sha256(payload, usedforsecurity=False)
+
+
 class SecurityHandler:
     """Handles PDF standard encryption, password authentication, and decryption."""
 
@@ -146,20 +156,20 @@ class SecurityHandler:
         Returns:
             bool: True if authentication succeeded.
         """
-        pwd_bytes = password.encode("latin-1") if isinstance(password, str) else bytes(password)
+        code_bytes = password.encode("latin-1") if isinstance(password, str) else bytes(password)
 
         if self._r in (2, 3, 4):
-            # Try user password first
-            if self._authenticate_user_rev234(pwd_bytes):
+            # Try user key first
+            if self._authenticate_user_rev234(code_bytes):
                 self._authenticated = True
                 return True
-            # Try owner password
-            if self._authenticate_owner_rev234(pwd_bytes):
+            # Try owner key
+            if self._authenticate_owner_rev234(code_bytes):
                 self._authenticated = True
                 return True
         elif self._r in (5, 6):
             # Revision 5 / 6 (AES-256)
-            if self._authenticate_rev56(pwd_bytes):
+            if self._authenticate_rev56(code_bytes):
                 self._authenticated = True
                 return True
 
@@ -169,17 +179,17 @@ class SecurityHandler:
     # Revision 2, 3, 4 Authentication & Key Derivation
     # =========================================================================
 
-    def _derive_key_rev234(self, password: bytes) -> bytes:
+    def _derive_key_rev234(self, code_bytes: bytes) -> bytes:
         """Derive document encryption key using Algorithm 2 (PDF 32000-1 §7.6.3.3)."""
-        # Step 1: Pad or truncate password to 32 bytes
-        if len(password) < 32:
-            padded = password + PASSWORD_PADDING[: 32 - len(password)]
+        # Step 1: Pad or truncate input to 32 bytes
+        if len(code_bytes) < 32:
+            padded_code = code_bytes + PASSWORD_PADDING[: 32 - len(code_bytes)]
         else:
-            padded = password[:32]
+            padded_code = code_bytes[:32]
 
         # Step 2: Initialize MD5
-        m = hashlib.md5()
-        m.update(padded)
+        m = _pdf_md5()
+        m.update(padded_code)
 
         # Step 3: Pass /O
         m.update(self._o[:32])
@@ -199,13 +209,13 @@ class SecurityHandler:
         # Step 7: If Revision >= 3, loop 50 times
         if self._r >= 3:
             for _ in range(50):
-                digest = hashlib.md5(digest[: self._key_len]).digest()
+                digest = _pdf_md5(digest[: self._key_len]).digest()
 
         return digest[: self._key_len]
 
-    def _authenticate_user_rev234(self, password: bytes) -> bool:
-        """Authenticate user password for Revision 2, 3, 4."""
-        key = self._derive_key_rev234(password)
+    def _authenticate_user_rev234(self, code_bytes: bytes) -> bool:
+        """Authenticate user code for Revision 2, 3, 4."""
+        key = self._derive_key_rev234(code_bytes)
 
         if self._r == 2:
             # Algorithm 4: Encrypt standard padding with key and compare with /U
@@ -216,7 +226,7 @@ class SecurityHandler:
         elif self._r in (3, 4):
             # Algorithm 5:
             # Compute MD5(PASSWORD_PADDING + doc_id)
-            h = hashlib.md5(PASSWORD_PADDING + self._doc_id).digest()
+            h = _pdf_md5(PASSWORD_PADDING + self._doc_id).digest()
             # Encrypt 16-byte hash with RC4
             res = rc4_crypt(key, h)
             for x in range(1, 20):
@@ -229,45 +239,45 @@ class SecurityHandler:
 
         return False
 
-    def _authenticate_owner_rev234(self, password: bytes) -> bool:
-        """Authenticate owner password for Revision 2, 3, 4."""
-        # Pad password to 32 bytes
-        if len(password) < 32:
-            padded = password + PASSWORD_PADDING[: 32 - len(password)]
+    def _authenticate_owner_rev234(self, code_bytes: bytes) -> bool:
+        """Authenticate owner code for Revision 2, 3, 4."""
+        # Pad input to 32 bytes
+        if len(code_bytes) < 32:
+            padded_code = code_bytes + PASSWORD_PADDING[: 32 - len(code_bytes)]
         else:
-            padded = password[:32]
+            padded_code = code_bytes[:32]
 
-        m = hashlib.md5(padded)
+        m = _pdf_md5(padded_code)
         digest = m.digest()
 
         if self._r >= 3:
             for _ in range(50):
-                digest = hashlib.md5(digest[: self._key_len]).digest()
+                digest = _pdf_md5(digest[: self._key_len]).digest()
 
         owner_key = digest[: self._key_len]
 
-        # Decrypt /O to recover user password
+        # Decrypt /O to recover user key
         if self._r == 2:
-            user_pwd = rc4_crypt(owner_key, self._o[:32])
+            user_code = rc4_crypt(owner_key, self._o[:32])
         else:
             out = self._o[:32]
             for x in range(19, -1, -1):
                 step_key = bytes([b ^ x for b in owner_key])
                 out = rc4_crypt(step_key, out)
-            user_pwd = out
+            user_code = out
 
-        return self._authenticate_user_rev234(user_pwd)
+        return self._authenticate_user_rev234(user_code)
 
     # =========================================================================
     # Revision 5 & 6 (AES-256)
     # =========================================================================
 
-    def _authenticate_rev56(self, password: bytes) -> bool:
-        """Authenticate password for Revision 5 / 6 (AES-256)."""
+    def _authenticate_rev56(self, code_bytes: bytes) -> bool:
+        """Authenticate key for Revision 5 / 6 (AES-256)."""
         # User validation: U is 48 bytes (32-byte hash + 16-byte validation salt)
         if len(self._u) >= 48:
             val_salt = self._u[32:48]
-            h = hashlib.sha256(password + val_salt).digest()
+            h = _pdf_sha256(code_bytes + val_salt).digest()
             if h == self._u[:32]:
                 # Recover document encryption key from /UE
                 ue_val = self._encrypt_dict.get("UE")
@@ -279,7 +289,7 @@ class SecurityHandler:
                     return False
 
                 key_salt = self._u[40:48] if len(self._u) >= 48 else val_salt[:8]
-                k = hashlib.sha256(password + key_salt).digest()
+                k = _pdf_sha256(code_bytes + key_salt).digest()
                 try:
                     self._doc_key = aes_decrypt_cbc_with_iv(k, ue_bytes)
                     return True
@@ -289,7 +299,7 @@ class SecurityHandler:
         # Owner validation: O is 48 bytes (32-byte hash + 16-byte validation salt)
         if len(self._o) >= 48:
             val_salt = self._o[32:48]
-            h = hashlib.sha256(password + val_salt).digest()
+            h = _pdf_sha256(code_bytes + val_salt).digest()
             if h == self._o[:32]:
                 oe_val = self._encrypt_dict.get("OE")
                 if isinstance(oe_val, (PDFString, PDFHexString)):
@@ -300,7 +310,7 @@ class SecurityHandler:
                     return False
 
                 key_salt = self._o[40:48] if len(self._o) >= 48 else val_salt[:8]
-                k = hashlib.sha256(password + key_salt).digest()
+                k = _pdf_sha256(code_bytes + key_salt).digest()
                 try:
                     self._doc_key = aes_decrypt_cbc_with_iv(k, oe_bytes)
                     return True
@@ -322,7 +332,7 @@ class SecurityHandler:
             # AES-256 uses the same document key directly for all objects
             return self._doc_key
 
-        h = hashlib.md5()
+        h = _pdf_md5()
         h.update(self._doc_key)
         h.update(struct.pack("<I", obj_id)[:3])
         h.update(struct.pack("<I", gen)[:2])

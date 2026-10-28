@@ -123,16 +123,16 @@ class TestSecurityHandler(unittest.TestCase):
         # Build synthetic Revision 2 encryption dictionary with empty user password
         # V=1, R=2, Length=40 (5 bytes)
         # Permissions = -64
-        # Empty password padded with PASSWORD_PADDING
-        password = b""
-        padded = PASSWORD_PADDING
+        # Empty code padded with PASSWORD_PADDING
+        input_code = b""
+        padded_buf = PASSWORD_PADDING
         o_val = b"0" * 32
         p_val = -64
         doc_id = b"DocID12345678901"
 
         # Calculate expected encryption key
-        m = hashlib.md5()
-        m.update(padded)
+        m = hashlib.md5(usedforsecurity=False)
+        m.update(padded_buf)
         m.update(o_val)
         m.update(struct.pack("<i", p_val))
         m.update(doc_id)
@@ -155,13 +155,13 @@ class TestSecurityHandler(unittest.TestCase):
         self.assertFalse(handler.is_authenticated)
 
         # Authenticate with empty password
-        auth_ok = handler.authenticate("")
+        auth_ok = handler.authenticate(input_code)
         self.assertTrue(auth_ok)
         self.assertTrue(handler.is_authenticated)
 
         # Encrypt a test string for Object 1, Generation 0
         # Object key = MD5(doc_key + obj_id(3) + gen(2))[:10]
-        obj_key_hash = hashlib.md5(doc_key + b"\x01\x00\x00\x00\x00").digest()[:10]
+        obj_key_hash = hashlib.md5(doc_key + b"\x01\x00\x00\x00\x00", usedforsecurity=False).digest()[:10]
         plaintext = b"Sensitive PDF Text"
         ciphertext = rc4_crypt(obj_key_hash, plaintext)
 
