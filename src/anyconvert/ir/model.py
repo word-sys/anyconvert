@@ -123,6 +123,8 @@ def detect_image_format(data: bytes) -> str:
         return "png"
     if data.startswith(b"\xFF\xD8\xFF"):
         return "jpeg"
+    if data.startswith(b"\x00\x00\x00\x0cjP") or data.startswith(b"\xFF\x4F\xFF\x51"):
+        return "jp2"
     if data.startswith(b"RIFF") and len(data) >= 12 and data[8:12] == b"WEBP":
         return "webp"
     if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
@@ -193,6 +195,8 @@ class ImageBlock:
             return "image/tiff"
         if fmt == "svg":
             return "image/svg+xml"
+        if fmt in ("jp2", "jpx"):
+            return "image/jp2"
         return "application/octet-stream"
 
     @property
@@ -200,6 +204,8 @@ class ImageBlock:
         fmt = self.format.lower()
         if fmt in ("jpeg", "jpg"):
             return ".jpeg"
+        if fmt in ("jp2", "jpx"):
+            return ".jp2"
         if fmt == "svg":
             return ".svg"
         if fmt == "webp":

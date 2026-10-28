@@ -62,6 +62,8 @@ from anyconvert.packaging.opc import (
     RT_SETTINGS,
     RT_STYLES,
 )
+from anyconvert.pdf.filters.jpx import jpx_to_rgba
+from anyconvert.utils.png import encode_rgba_png
 
 
 _ALIGN_MAP: Dict[Alignment, str] = {
@@ -536,6 +538,7 @@ class DocxEmitter(BaseEmitter):
 
         ext = img.file_extension
         fmt = img.format.lower()
+        img_bytes = img.image_bytes
         if fmt in ("jpeg", "jpg"):
             content_type = CT_JPEG
         elif fmt == "gif":
@@ -544,13 +547,19 @@ class DocxEmitter(BaseEmitter):
             content_type = CT_TIFF
         elif fmt == "svg":
             content_type = CT_SVG
+        elif fmt in ("jp2", "jpx"):
+            content_type = CT_PNG
+            ext = ".png"
+            if not img_bytes.startswith(b"\x89PNG"):
+                rgba_buf, _, w, h = jpx_to_rgba(img_bytes)
+                img_bytes = encode_rgba_png(w, h, rgba_buf)
         else:
             content_type = CT_PNG
 
         img_part_name = f"word/media/image{img_num}{ext}"
         rel_target = f"media/image{img_num}{ext}"
 
-        pkg.add_part(img_part_name, img.image_bytes, content_type=content_type)
+        pkg.add_part(img_part_name, img_bytes, content_type=content_type)
 
         rel_id = f"rIdImg{img_num}"
         doc_rels[rel_target] = rel_id

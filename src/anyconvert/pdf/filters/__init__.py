@@ -18,6 +18,7 @@ from anyconvert.pdf.filters.ascii import ascii_85_decode, ascii_hex_decode
 from anyconvert.pdf.filters.ccitt import ccitt_decode
 from anyconvert.pdf.filters.flate import apply_predictor_reversal, flate_decode
 from anyconvert.pdf.filters.jbig2 import jbig2_decode
+from anyconvert.pdf.filters.jpx import is_jpx_stream, jpx_decode
 from anyconvert.pdf.filters.lzw import lzw_decode
 from anyconvert.pdf.filters.runlength import run_length_decode
 from anyconvert.pdf.parser import PDFArray, PDFDict, PDFName
@@ -56,6 +57,10 @@ _FILTER_MAP = {
     "JBIG2": "JBIG2Decode",
     "/JBIG2Decode": "JBIG2Decode",
     "/JBIG2": "JBIG2Decode",
+    "JPXDecode": "JPXDecode",
+    "JPX": "JPXDecode",
+    "/JPXDecode": "JPXDecode",
+    "/JPX": "JPXDecode",
 }
 
 
@@ -142,6 +147,8 @@ def decode_stream(
             current_data = ccitt_decode(current_data, params=p_dict)
         elif f_clean == "JBIG2Decode":
             current_data = jbig2_decode(current_data, params=p_dict)
+        elif f_clean == "JPXDecode":
+            current_data = jpx_decode(current_data, params=p_dict)
         elif f_clean == "DCTDecode":
             # DCTDecode is JPEG; raw stream bytes are already standard JPEG
             continue
@@ -159,6 +166,8 @@ __all__ = [
     "flate_decode",
     "ccitt_decode",
     "jbig2_decode",
+    "jpx_decode",
+    "is_jpx_stream",
     "apply_predictor_reversal",
     "decode_stream",
 ]

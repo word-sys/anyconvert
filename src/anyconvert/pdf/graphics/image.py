@@ -13,6 +13,7 @@ from typing import Any, List, Optional, Sequence, Tuple, Union
 
 from anyconvert.exceptions import PDFSyntaxError, SerializationError
 from anyconvert.pdf.filters import decode_stream
+from anyconvert.pdf.filters.jpx import is_jpx_stream, jpx_to_rgba, parse_jpx_info
 from anyconvert.pdf.parser import (
     PDFArray,
     PDFDict,
@@ -146,6 +147,9 @@ class PDFImage:
         """Serialize image to a standard PNG byte sequence in memory."""
         if not self.rgba_pixels and self.format == "jpeg":
             return encode_rgb_png(1, 1, b"\x80\x80\x80")
+        if not self.rgba_pixels and self.format in ("jp2", "jpx"):
+            rgba_buf, _, _, _ = jpx_to_rgba(self.raw_data, self.width, self.height)
+            return encode_rgba_png(self.width, self.height, rgba_buf)
         if self.has_alpha:
             return encode_rgba_png(self.width, self.height, self.rgba_pixels)
         if self.color_space_name in ("DeviceGray", "CalGray"):
@@ -157,6 +161,12 @@ class PDFImage:
         if self.format == "jpeg" and self.raw_data.startswith(b"\xFF\xD8\xFF") and not self.has_alpha:
             return self.raw_data
         return self.to_png()
+
+    def to_jp2(self) -> bytes:
+        """Return JPEG 2000 JP2 container byte sequence."""
+        if self.format in ("jp2", "jpx") and self.raw_data:
+            return self.raw_data
+        return b""
 
     @classmethod
     def from_stream(
@@ -190,13 +200,37 @@ class PDFImage:
         if st_name != "Image":
             raise PDFSyntaxError(f"Expected XObject /Subtype /Image, got {st_name!r}")
 
+        # Decompress stream data
+        filter_spec = sdict.get("Filter")
+        params_spec = sdict.get("DecodeParms")
+        raw_payload = stream.get_raw_bytes()
+        decoded_bytes = decode_stream(raw_payload, filter_spec, params_spec)
+
+        # Detect JPX (JPEG 2000)
+        is_jpx = False
+        if filter_spec:
+            f_norm = filter_spec.name if isinstance(filter_spec, PDFName) else str(filter_spec)
+            if "JPX" in f_norm:
+                is_jpx = True
+        if is_jpx_stream(decoded_bytes):
+            is_jpx = True
+
+        jpx_info: Optional[Any] = None
+        if is_jpx:
+            jpx_info = parse_jpx_info(decoded_bytes)
+
         # Dimensions
         w_val = deref(sdict.get("Width"))
         h_val = deref(sdict.get("Height"))
         if not isinstance(w_val, int) or not isinstance(h_val, int) or w_val <= 0 or h_val <= 0:
-            raise PDFSyntaxError(f"Invalid image dimensions: {w_val}x{h_val}")
-        width = w_val
-        height = h_val
+            if is_jpx and jpx_info is not None:
+                width = jpx_info.width
+                height = jpx_info.height
+            else:
+                raise PDFSyntaxError(f"Invalid image dimensions: {w_val}x{h_val}")
+        else:
+            width = w_val
+            height = h_val
 
         # ImageMask
         is_mask = bool(deref(sdict.get("ImageMask", False)))
@@ -209,19 +243,16 @@ class PDFImage:
             bpc = int(bpc_val) if isinstance(bpc_val, (int, float)) else 8
 
         if bpc not in (1, 2, 4, 8, 16):
-            raise PDFSyntaxError(f"Unsupported BitsPerComponent: {bpc}")
+            if is_jpx and jpx_info is not None:
+                bpc = jpx_info.bits_per_component
+            else:
+                raise PDFSyntaxError(f"Unsupported BitsPerComponent: {bpc}")
 
         # Decode array
         decode_raw = deref(sdict.get("Decode"))
         decode_list: Optional[list[float]] = None
         if isinstance(decode_raw, (list, PDFArray)):
             decode_list = [float(deref(x)) for x in decode_raw]
-
-        # Decompress stream data
-        filter_spec = sdict.get("Filter")
-        params_spec = sdict.get("DecodeParms")
-        raw_payload = stream.get_raw_bytes()
-        decoded_bytes = decode_stream(raw_payload, filter_spec, params_spec)
 
         # Detect DCTDecode (JPEG)
         # If stream is JPEG, verify JPEG header
@@ -249,9 +280,17 @@ class PDFImage:
 
         # Resolve ColorSpace
         cs_obj = deref(sdict.get("ColorSpace")) if not is_mask else None
-        color_space_name, num_components, cs_extra = _resolve_color_space(
-            cs_obj, is_mask, len(decoded_bytes), width, height, bpc, resolver
-        )
+        if is_jpx and cs_obj is None:
+            if jpx_info is not None and jpx_info.color_space:
+                color_space_name = jpx_info.color_space
+                num_components = jpx_info.num_components
+                cs_extra: dict[str, Any] = {}
+            else:
+                color_space_name, num_components, cs_extra = "DeviceRGB", 3, {}
+        else:
+            color_space_name, num_components, cs_extra = _resolve_color_space(
+                cs_obj, is_mask, len(decoded_bytes), width, height, bpc, resolver
+            )
 
         # Fast pass-through for standalone JPEG without transparency
         if is_dct and not has_mask and not is_mask and decoded_bytes.startswith(b"\xFF\xD8\xFF"):
@@ -263,6 +302,21 @@ class PDFImage:
                 rgba_pixels=b"",
                 has_alpha=False,
                 format="jpeg",
+                raw_data=decoded_bytes,
+                stream=stream,
+            )
+
+        # Fast pass-through / transcode for JPEG 2000 (JPX/JP2)
+        if is_jpx and not has_mask and not is_mask:
+            rgba_buf, jpx_has_alpha, j_w, j_h = jpx_to_rgba(decoded_bytes, width, height)
+            return cls(
+                width=width or j_w,
+                height=height or j_h,
+                color_space_name=color_space_name,
+                bits_per_component=bpc,
+                rgba_pixels=rgba_buf,
+                has_alpha=jpx_has_alpha,
+                format="jp2",
                 raw_data=decoded_bytes,
                 stream=stream,
             )
