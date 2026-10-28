@@ -189,7 +189,7 @@ ADOBE_GLYPH_LIST: Dict[str, str] = {
     "Euro": "\u20ac", "cent": "\u00a2", "sterling": "\u00a3", "yen": "\u00a5", "currency": "\u00a4", "florin": "\u0192",
     # Marks & Symbols
     "copyright": "\u00a9", "registered": "\u00ae", "trademark": "\u2122", "degree": "\u00b0", "plusminus": "\u00b1",
-    "multiply": "\u00d7", "divide": "\u00f7", "minus": "\u2212", "equal": "=", "logicalnot": "\u00ac",
+    "multiply": "\u00d7", "divide": "\u00f7", "minus": "\u2212", "logicalnot": "\u00ac",
     "acute": "\u00b4", "circumflex": "\u02c6", "tilde": "\u02dc", "macron": "\u00af", "breve": "\u02d8",
     "dotaccent": "\u02d9", "dieresis": "\u00a8", "ring": "\u02da", "cedilla": "\u00b8", "hungarumlaut": "\u02dd",
     "ogonek": "\u02db", "caron": "\u02c7",
