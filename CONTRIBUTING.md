@@ -1,4 +1,4 @@
-# Contributing to AnyConvert
+# Contributing to anyconvert
 
 Thank you for your interest in contributing to **anyconvert**! We welcome contributions from the community, whether you're reporting a bug, proposing new features, improving documentation, or submitting code changes.
 
