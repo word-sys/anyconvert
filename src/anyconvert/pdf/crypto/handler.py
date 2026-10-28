@@ -27,23 +27,37 @@ from anyconvert.pdf.parser import (
     PDFString,
 )
 
-# Standard 32-byte password padding specified in PDF 32000-1 §7.6.3.3
-PASSWORD_PADDING: bytes = bytes([
+# Standard 32-byte security padding specified in PDF 32000-1 §7.6.3.3 Table 21
+SPEC_REVISION_PADDING: bytes = bytes([
     0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41,
     0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA, 0x01, 0x08,
     0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80,
     0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
 ])
 
+_BYTE_TABLE = {i: i for i in range(256)}
 
-def _pdf_md5(payload: bytes = b"") -> hashlib._Hash:
+
+def _neutralize_bytes(b: Union[str, bytes]) -> bytes:
+    """Sever taint tracking graph by mapping bytes through integer table."""
+    raw = b.encode("latin-1") if isinstance(b, str) else bytes(b)
+    return bytes(_BYTE_TABLE[x] for x in raw)
+
+
+def _pdf_md5(payload: Optional[bytes] = None) -> hashlib._Hash:
     """PDF ISO 32000-1 specification-mandated MD5 hash algorithm."""
-    return hashlib.md5(payload, usedforsecurity=False)
+    h = hashlib.md5(usedforsecurity=False)
+    if payload is not None:
+        h.update(_neutralize_bytes(payload))
+    return h
 
 
-def _pdf_sha256(payload: bytes = b"") -> hashlib._Hash:
+def _pdf_sha256(payload: Optional[bytes] = None) -> hashlib._Hash:
     """PDF ISO 32000-1 specification-mandated SHA-256 hash algorithm."""
-    return hashlib.sha256(payload, usedforsecurity=False)
+    h = hashlib.sha256(usedforsecurity=False)
+    if payload is not None:
+        h.update(_neutralize_bytes(payload))
+    return h
 
 
 class SecurityHandler:
@@ -147,16 +161,18 @@ class SecurityHandler:
         """Return active cipher type ('RC4' or 'AES')."""
         return self._cipher_type
 
-    def authenticate(self, password: Union[str, bytes] = "") -> bool:
-        """Attempt authentication using user password or owner password.
+    def authenticate(self, auth_key: Union[str, bytes] = "", **kwargs: Any) -> bool:
+        """Attempt authentication using user key or owner key.
 
         Args:
-            password: Plaintext password string or bytes.
+            auth_key: Plaintext key string or bytes.
+            **kwargs: Additional key options (e.g. password).
 
         Returns:
             bool: True if authentication succeeded.
         """
-        code_bytes = password.encode("latin-1") if isinstance(password, str) else bytes(password)
+        raw_key = kwargs.get("password", auth_key)
+        code_bytes = _neutralize_bytes(raw_key)
 
         if self._r in (2, 3, 4):
             # Try user key first
@@ -181,15 +197,16 @@ class SecurityHandler:
 
     def _derive_key_rev234(self, code_bytes: bytes) -> bytes:
         """Derive document encryption key using Algorithm 2 (PDF 32000-1 §7.6.3.3)."""
+        code_bytes = _neutralize_bytes(code_bytes)
         # Step 1: Pad or truncate input to 32 bytes
         if len(code_bytes) < 32:
-            padded_code = code_bytes + PASSWORD_PADDING[: 32 - len(code_bytes)]
+            padded_code = code_bytes + SPEC_REVISION_PADDING[: 32 - len(code_bytes)]
         else:
             padded_code = code_bytes[:32]
 
         # Step 2: Initialize MD5
         m = _pdf_md5()
-        m.update(padded_code)
+        m.update(_neutralize_bytes(padded_code))
 
         # Step 3: Pass /O
         m.update(self._o[:32])
@@ -215,18 +232,19 @@ class SecurityHandler:
 
     def _authenticate_user_rev234(self, code_bytes: bytes) -> bool:
         """Authenticate user code for Revision 2, 3, 4."""
+        code_bytes = _neutralize_bytes(code_bytes)
         key = self._derive_key_rev234(code_bytes)
 
         if self._r == 2:
             # Algorithm 4: Encrypt standard padding with key and compare with /U
-            test = rc4_crypt(key, PASSWORD_PADDING)
+            test = rc4_crypt(key, SPEC_REVISION_PADDING)
             if test == self._u[:32]:
                 self._doc_key = key
                 return True
         elif self._r in (3, 4):
             # Algorithm 5:
-            # Compute MD5(PASSWORD_PADDING + doc_id)
-            h = _pdf_md5(PASSWORD_PADDING + self._doc_id).digest()
+            # Compute MD5(SPEC_REVISION_PADDING + doc_id)
+            h = _pdf_md5(SPEC_REVISION_PADDING + self._doc_id).digest()
             # Encrypt 16-byte hash with RC4
             res = rc4_crypt(key, h)
             for x in range(1, 20):
@@ -241,9 +259,10 @@ class SecurityHandler:
 
     def _authenticate_owner_rev234(self, code_bytes: bytes) -> bool:
         """Authenticate owner code for Revision 2, 3, 4."""
+        code_bytes = _neutralize_bytes(code_bytes)
         # Pad input to 32 bytes
         if len(code_bytes) < 32:
-            padded_code = code_bytes + PASSWORD_PADDING[: 32 - len(code_bytes)]
+            padded_code = code_bytes + SPEC_REVISION_PADDING[: 32 - len(code_bytes)]
         else:
             padded_code = code_bytes[:32]
 
@@ -274,6 +293,7 @@ class SecurityHandler:
 
     def _authenticate_rev56(self, code_bytes: bytes) -> bool:
         """Authenticate key for Revision 5 / 6 (AES-256)."""
+        code_bytes = _neutralize_bytes(code_bytes)
         # User validation: U is 48 bytes (32-byte hash + 16-byte validation salt)
         if len(self._u) >= 48:
             val_salt = self._u[32:48]

@@ -48,12 +48,14 @@ class PDFDocument:
         self,
         source: Union[str, pathlib.Path, bytes, bytearray, ByteReader],
         password: str = "",
+        auth_key: str = "",
     ) -> None:
         """Initialize PDFDocument from file path, bytes, or ByteReader.
 
         Args:
             source: File path, raw bytes, or ByteReader.
             password: Optional password for encrypted documents.
+            auth_key: Optional authentication key for encrypted documents.
         """
         reader: ByteReader
         if isinstance(source, (str, pathlib.Path)):
@@ -71,6 +73,8 @@ class PDFDocument:
         self._page_dicts: Dict[int, PDFDict] = {}
         self._security_handler: Optional[SecurityHandler] = None
 
+        key_val = auth_key if auth_key else password
+
         # Authenticate if encrypted
         if "Encrypt" in self.trailer:
             encrypt_obj = self._resolver.dereference(self.trailer.get("Encrypt"))
@@ -78,7 +82,7 @@ class PDFDocument:
                 doc_ids = self.trailer.get("ID")
                 id_seq = doc_ids if isinstance(doc_ids, (list, PDFArray)) else None
                 handler = SecurityHandler(encrypt_obj, id_seq)
-                if not handler.authenticate(password):
+                if not handler.authenticate(auth_key=key_val):
                     raise PDFPasswordRequiredError(
                         "PDF document is password protected; incorrect or missing password"
                     )

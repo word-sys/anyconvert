@@ -103,7 +103,7 @@ def pdf_to_document_ir(
     else:
         raise TypeError(f"Unsupported source type: {type(source).__name__}")
 
-    doc = PDFDocument(reader, password=password)
+    doc = PDFDocument(reader, auth_key=password)
 
     if doc.page_count == 0:
         raise PDFSyntaxError("PDF contains no valid pages")

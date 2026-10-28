@@ -25,7 +25,7 @@ from anyconvert.exceptions import (
     PDFSyntaxError,
     UnsupportedFormatError,
 )
-from anyconvert.pdf.crypto.handler import PASSWORD_PADDING
+from anyconvert.pdf.crypto.handler import SPEC_REVISION_PADDING
 from anyconvert.pdf.crypto.rc4 import rc4_crypt
 
 
@@ -91,7 +91,7 @@ def build_synthetic_multipage_pdf() -> bytes:
 
 def build_encrypted_pdf(input_code: bytes = b"topsecret") -> bytes:
     """Generate an encrypted PDF adhering to standard revision 2 security."""
-    padded_buf = input_code + PASSWORD_PADDING[: 32 - len(input_code)]
+    padded_buf = input_code + SPEC_REVISION_PADDING[: 32 - len(input_code)]
     o_val = b"0" * 32
     p_val = -64
     doc_id = b"TestDocumentId12"
@@ -102,7 +102,7 @@ def build_encrypted_pdf(input_code: bytes = b"topsecret") -> bytes:
     m.update(struct.pack("<i", p_val))
     m.update(doc_id)
     doc_key = m.digest()[:5]
-    u_val = rc4_crypt(doc_key, PASSWORD_PADDING)
+    u_val = rc4_crypt(doc_key, SPEC_REVISION_PADDING)
 
     # Object 4 is content stream, encrypt its data
     obj_key_hash = hashlib.md5(doc_key + b"\x04\x00\x00\x00\x00", usedforsecurity=False).digest()[:10]

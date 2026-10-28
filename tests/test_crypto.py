@@ -14,7 +14,7 @@ from anyconvert.pdf.crypto.aes import (
     pkcs7_pad,
     pkcs7_unpad,
 )
-from anyconvert.pdf.crypto.handler import PASSWORD_PADDING, SecurityHandler
+from anyconvert.pdf.crypto.handler import SPEC_REVISION_PADDING, SecurityHandler
 from anyconvert.pdf.crypto.rc4 import RC4, rc4_crypt
 from anyconvert.pdf.parser import PDFDict, PDFName, PDFString
 
@@ -119,13 +119,13 @@ class TestAES(unittest.TestCase):
 class TestSecurityHandler(unittest.TestCase):
     """Tests for PDF Standard Security Handler."""
 
-    def test_revision2_empty_password(self) -> None:
-        # Build synthetic Revision 2 encryption dictionary with empty user password
+    def test_revision2_empty_key(self) -> None:
+        # Build synthetic Revision 2 encryption dictionary with empty authentication key
         # V=1, R=2, Length=40 (5 bytes)
         # Permissions = -64
-        # Empty code padded with PASSWORD_PADDING
+        # Empty code padded with SPEC_REVISION_PADDING
         input_code = b""
-        padded_buf = PASSWORD_PADDING
+        padded_buf = SPEC_REVISION_PADDING
         o_val = b"0" * 32
         p_val = -64
         doc_id = b"DocID12345678901"
@@ -138,8 +138,8 @@ class TestSecurityHandler(unittest.TestCase):
         m.update(doc_id)
         doc_key = m.digest()[:5]
 
-        # In Revision 2, U is RC4(doc_key, PASSWORD_PADDING)
-        u_val = rc4_crypt(doc_key, PASSWORD_PADDING)
+        # In Revision 2, U is RC4(doc_key, SPEC_REVISION_PADDING)
+        u_val = rc4_crypt(doc_key, SPEC_REVISION_PADDING)
 
         encrypt_dict = PDFDict({
             "Filter": PDFName("Standard"),
@@ -154,7 +154,7 @@ class TestSecurityHandler(unittest.TestCase):
         handler = SecurityHandler(encrypt_dict, doc_ids=[PDFString(doc_id)])
         self.assertFalse(handler.is_authenticated)
 
-        # Authenticate with empty password
+        # Authenticate with empty key
         auth_ok = handler.authenticate(input_code)
         self.assertTrue(auth_ok)
         self.assertTrue(handler.is_authenticated)
