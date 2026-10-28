@@ -5,8 +5,6 @@ import pathlib
 import sys
 from typing import List
 
-import pytest
-
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC_DIR = REPO_ROOT / "src"
 TESTS_DIR = REPO_ROOT / "tests"
@@ -146,8 +144,11 @@ def test_scanner_detects_fstring_backslash() -> None:
     """Verify that scanner flags backslashes in f-string expressions."""
     if sys.version_info < (3, 12):
         # On Python < 3.12, f-string with backslash is a SyntaxError at compile time
-        with pytest.raises(SyntaxError):
+        try:
             ast.parse('f"{\'\\\\n\'.join(items)}"')
+            raise AssertionError("Expected SyntaxError on Python < 3.12")
+        except SyntaxError:
+            pass
     else:
         source = 'items = ["a", "b"]\nmsg = f"{\'\\n\'.join(items)}"\n'
         tree = ast.parse(source)
