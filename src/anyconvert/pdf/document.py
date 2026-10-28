@@ -89,6 +89,18 @@ class PDFDocument:
         """Underlying XRefResolver."""
         return self._resolver
 
+    def close(self) -> None:
+        """Release underlying PDF reader and parser resources."""
+        self._resolver.close()
+
+    def __enter__(self) -> PDFDocument:
+        """Context management entry."""
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Context management exit releasing resources."""
+        self.close()
+
     @property
     def trailer(self) -> PDFDict:
         """Merged trailer dictionary."""

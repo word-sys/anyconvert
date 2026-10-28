@@ -167,6 +167,10 @@ class XRefResolver:
         """Underlying byte reader."""
         return self._reader
 
+    def close(self) -> None:
+        """Release underlying reader resources."""
+        self._reader.close()
+
     @property
     def table(self) -> XRefTable:
         """Cross-reference table (lazily loaded on first access)."""

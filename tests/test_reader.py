@@ -42,6 +42,13 @@ class TestByteReader(unittest.TestCase):
         with self.assertRaises(TypeError):
             ByteReader(12345)  # type: ignore[arg-type]
 
+    def test_context_manager_and_close(self) -> None:
+        data = b"Memoryview context manager test"
+        with ByteReader(data) as reader:
+            self.assertEqual(reader.read_bytes(10).tobytes(), b"Memoryview")
+            self.assertEqual(reader.pos, 10)
+        reader.close()
+
     def test_seeking_and_navigation(self) -> None:
         data = b"0123456789"
         reader = ByteReader(data)

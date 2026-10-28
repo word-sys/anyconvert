@@ -270,6 +270,13 @@ class TestPDFDocument(unittest.TestCase):
         c2 = doc.get_page_content_bytes(page2)
         self.assertIn(b"Page 2 Text", c2)
 
+        # Close and context manager test
+        doc.close()
+        with PDFDocument(full_pdf) as doc_ctx:
+            self.assertEqual(doc_ctx.page_count, 2)
+
+        self.assertIn(b"Page 2 Text", c2)
+
 
 if __name__ == "__main__":
     unittest.main()

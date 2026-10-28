@@ -10,7 +10,7 @@ from __future__ import annotations
 import io
 import os
 import struct
-from typing import Optional, Sequence, Set, Tuple, Union
+from typing import Any, Optional, Sequence, Set, Tuple, Union
 
 # Standard PDF whitespace byte values per PDF 32000-1 §7.2.2:
 # 0x00 (NUL), 0x09 (HT), 0x0A (LF), 0x0C (FF), 0x0D (CR), 0x20 (SP)
@@ -84,6 +84,21 @@ class ByteReader:
     def tell(self) -> int:
         """Return current byte position."""
         return self._pos
+
+    def close(self) -> None:
+        """Release underlying memoryview buffer resources."""
+        try:
+            self._view.release()
+        except ValueError:
+            pass
+
+    def __enter__(self) -> ByteReader:
+        """Context management entry."""
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Context management exit releasing memoryview."""
+        self.close()
 
     def seek(self, offset: int, whence: int = os.SEEK_SET) -> int:
         """Move cursor to a specified byte offset.
