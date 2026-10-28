@@ -47,19 +47,23 @@ class Py310CompatibilityScanner(ast.NodeVisitor):
 
     def visit_FormattedValue(self, node: ast.FormattedValue) -> None:
         """Reject backslashes inside f-string replacement expressions (PEP 701 regression)."""
-        if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-            expr_lines = self.lines[node.lineno - 1 : node.end_lineno]
-            if expr_lines:
-                if len(expr_lines) == 1:
-                    segment = expr_lines[0][node.col_offset : node.end_col_offset]
-                else:
-                    expr_lines[0] = expr_lines[0][node.col_offset :]
-                    expr_lines[-1] = expr_lines[-1][: node.end_col_offset]
-                    segment = "\n".join(expr_lines)
-                if "\\" in segment:
-                    self.violations.append(
-                        f"{self.filename}:{node.lineno}: Backslash in f-string expression is forbidden in Python 3.10 ({segment!r})"
-                    )
+        # On Python < 3.12, Python's native parser rejects backslashes in replacement expressions
+        # during compile/ast.parse with SyntaxError. On Python >= 3.12, inspect node.value offsets.
+        if sys.version_info >= (3, 12):
+            val = node.value
+            if hasattr(val, "lineno") and hasattr(val, "end_lineno"):
+                expr_lines = self.lines[val.lineno - 1 : val.end_lineno]
+                if expr_lines:
+                    if len(expr_lines) == 1:
+                        segment = expr_lines[0][val.col_offset : val.end_col_offset]
+                    else:
+                        expr_lines[0] = expr_lines[0][val.col_offset :]
+                        expr_lines[-1] = expr_lines[-1][: val.end_col_offset]
+                        segment = "\n".join(expr_lines)
+                    if "\\" in segment:
+                        self.violations.append(
+                            f"{self.filename}:{val.lineno}: Backslash in f-string expression is forbidden in Python 3.10 ({segment!r})"
+                        )
         self.generic_visit(node)
 
     def visit_Import(self, node: ast.Import) -> None:
