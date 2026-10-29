@@ -17,6 +17,11 @@ from anyconvert.emitters.base import (
     pt_to_half_pt,
     xml_escape,
 )
+from anyconvert.emitters.docx.drawing import (
+    render_vector_block_flow,
+    render_vector_run_canvas,
+    svg_path_to_drawingml,
+)
 from anyconvert.emitters.docx.numbering import build_default_numbering_xml
 from anyconvert.emitters.docx.styles import build_default_styles_xml
 from anyconvert.exceptions import SerializationError
@@ -329,8 +334,9 @@ class DocxEmitter(BaseEmitter):
                 mode=mode,
             )
         elif isinstance(block, VectorBlock):
-            # For vector shapes without rasterization, render container placeholder or path
-            return ""
+            shape_id = 5000 + image_counter_ref[0]
+            image_counter_ref[0] += 1
+            return render_vector_block_flow(block, shape_id, page_width)
         return ""
 
     def _render_paragraph(
@@ -661,81 +667,7 @@ class DocxEmitter(BaseEmitter):
         shape_id: int,
     ) -> str:
         """Render a VectorBlock to a DrawingML run (<w:r><w:drawing>...)."""
-        if not vec.svg_path:
-            return ""
-
-        scale = 100.0
-        dml_path = _svg_path_to_drawingml(vec.svg_path, scale=scale)
-        if not dml_path:
-            return ""
-
-        pw_units = int(round(page_width * scale))
-        ph_units = int(round(page_height * scale))
-        cx_emu = pt_to_emu(page_width)
-        cy_emu = pt_to_emu(page_height)
-
-        # Fill
-        if vec.fill_color is not None:
-            f_hex = color_to_hex(vec.fill_color)
-            if vec.fill_color.a < 1.0:
-                alpha = int(round(vec.fill_color.a * 100000))
-                fill_xml = f'<a:solidFill><a:srgbClr val="{f_hex}"><a:alpha val="{alpha}"/></a:srgbClr></a:solidFill>'
-            else:
-                fill_xml = f'<a:solidFill><a:srgbClr val="{f_hex}"/></a:solidFill>'
-        else:
-            fill_xml = '<a:noFill/>'
-
-        # Stroke
-        if vec.stroke_color is not None and vec.stroke_width > 0:
-            s_hex = color_to_hex(vec.stroke_color)
-            w_emu = pt_to_emu(max(0.5, vec.stroke_width))
-            if vec.stroke_color.a < 1.0:
-                alpha = int(round(vec.stroke_color.a * 100000))
-                ln_xml = f'<a:ln w="{w_emu}"><a:solidFill><a:srgbClr val="{s_hex}"><a:alpha val="{alpha}"/></a:srgbClr></a:solidFill></a:ln>'
-            else:
-                ln_xml = f'<a:ln w="{w_emu}"><a:solidFill><a:srgbClr val="{s_hex}"/></a:solidFill></a:ln>'
-        else:
-            ln_xml = '<a:ln><a:noFill/></a:ln>'
-
-        return (
-            '      <w:r>\n'
-            '        <w:drawing>\n'
-            '          <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="1"\n'
-            '                     behindDoc="1" locked="0" layoutInCell="0" allowOverlap="1">\n'
-            '            <wp:simplePos x="0" y="0"/>\n'
-            '            <wp:positionH relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionH>\n'
-            '            <wp:positionV relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionV>\n'
-            f'            <wp:extent cx="{cx_emu}" cy="{cy_emu}"/>\n'
-            '            <wp:effectExtent l="0" t="0" r="0" b="0"/>\n'
-            '            <wp:wrapNone/>\n'
-            f'            <wp:docPr id="{shape_id}" name="Vector_{shape_id}"/>\n'
-            '            <wp:cNvGraphicFramePr/>\n'
-            '            <a:graphic>\n'
-            '              <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">\n'
-            '                <wps:wsp>\n'
-            '                  <wps:cNvSpPr/>\n'
-            '                  <wps:spPr>\n'
-            f'                    <a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx_emu}" cy="{cy_emu}"/></a:xfrm>\n'
-            '                    <a:custGeom>\n'
-            '                      <a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/>\n'
-            f'                      <a:rect l="0" t="0" r="{pw_units}" b="{ph_units}"/>\n'
-            '                      <a:pathLst>\n'
-            f'                        <a:path w="{pw_units}" h="{ph_units}">\n'
-            f'                          {dml_path}\n'
-            '                        </a:path>\n'
-            '                      </a:pathLst>\n'
-            '                    </a:custGeom>\n'
-            f'                    {fill_xml}\n'
-            f'                    {ln_xml}\n'
-            '                  </wps:spPr>\n'
-            '                  <wps:bodyPr/>\n'
-            '                </wps:wsp>\n'
-            '              </a:graphicData>\n'
-            '            </a:graphic>\n'
-            '          </wp:anchor>\n'
-            '        </w:drawing>\n'
-            '      </w:r>\n'
-        )
+        return render_vector_run_canvas(vec, shape_id, page_width, page_height)
 
     def _build_header_footer_xml(
         self,
@@ -846,53 +778,7 @@ def pkg_images_count(pkg: OPCPackage) -> int:
 
 def _svg_path_to_drawingml(svg_path: str, scale: float = 100.0) -> str:
     """Convert an SVG path with M, L, C, Z commands to DrawingML path markup."""
-    tokens = svg_path.split()
-    dml_cmds: List[str] = []
-    i = 0
-    n = len(tokens)
-    while i < n:
-        cmd = tokens[i]
-        i += 1
-        if cmd == "M":
-            if i + 1 < n:
-                try:
-                    x = int(round(float(tokens[i]) * scale))
-                    y = int(round(float(tokens[i + 1]) * scale))
-                    dml_cmds.append(f'<a:moveTo><a:pt x="{x}" y="{y}"/></a:moveTo>')
-                except ValueError:
-                    pass
-                i += 2
-        elif cmd == "L":
-            if i + 1 < n:
-                try:
-                    x = int(round(float(tokens[i]) * scale))
-                    y = int(round(float(tokens[i + 1]) * scale))
-                    dml_cmds.append(f'<a:lnTo><a:pt x="{x}" y="{y}"/></a:lnTo>')
-                except ValueError:
-                    pass
-                i += 2
-        elif cmd == "C":
-            if i + 5 < n:
-                try:
-                    x1 = int(round(float(tokens[i]) * scale))
-                    y1 = int(round(float(tokens[i + 1]) * scale))
-                    x2 = int(round(float(tokens[i + 2]) * scale))
-                    y2 = int(round(float(tokens[i + 3]) * scale))
-                    x = int(round(float(tokens[i + 4]) * scale))
-                    y = int(round(float(tokens[i + 5]) * scale))
-                    dml_cmds.append(
-                        f'<a:cubicBezTo>'
-                        f'<a:pt x="{x1}" y="{y1}"/>'
-                        f'<a:pt x="{x2}" y="{y2}"/>'
-                        f'<a:pt x="{x}" y="{y}"/>'
-                        f'</a:cubicBezTo>'
-                    )
-                except ValueError:
-                    pass
-                i += 6
-        elif cmd in ("Z", "z"):
-            dml_cmds.append('<a:close/>')
-    return "".join(dml_cmds)
+    return svg_path_to_drawingml(svg_path, scale=scale)
 
 
 __all__ = ["DocxEmitter"]
