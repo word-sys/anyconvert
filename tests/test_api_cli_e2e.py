@@ -262,6 +262,16 @@ class TestEndToEndConversion(unittest.TestCase):
         self.assertIn("\x0c", txt_canvas)
         self.assertIn("Strategic Vision", txt_canvas)
 
+    def test_svg_conversion(self) -> None:
+        """Verify end-to-end PDF to SVG conversion."""
+        svg_data = convert(self.pdf_bytes, output_format="svg")
+        self.assertIsInstance(svg_data, bytes)
+        svg_text = svg_data.decode("utf-8")
+        self.assertIn("<svg", svg_text)
+        self.assertIn("Annual Corporate Report 2026", svg_text)
+        self.assertIn("<text", svg_text)
+        self.assertIn("<rect", svg_text)
+
 
 class TestAPIUsageAndEdgeCases(unittest.TestCase):
     """Tests for API convenience methods, argument validation, and error paths."""

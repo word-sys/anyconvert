@@ -7,6 +7,7 @@ from anyconvert.emitters.docx import DocxEmitter
 from anyconvert.emitters.odp import OdpEmitter
 from anyconvert.emitters.odt import OdtEmitter
 from anyconvert.emitters.pptx import PptxEmitter
+from anyconvert.emitters.svg import SvgEmitter
 from anyconvert.emitters.txt import (
     TxtCanvasEmitter,
     TxtEmitter,
@@ -20,6 +21,7 @@ __all__ = [
     "PptxEmitter",
     "OdtEmitter",
     "OdpEmitter",
+    "SvgEmitter",
     "TxtEmitter",
     "TxtFlowEmitter",
     "TxtCanvasEmitter",
