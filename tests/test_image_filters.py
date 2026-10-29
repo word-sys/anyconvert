@@ -1,6 +1,6 @@
 """Comprehensive test suite for PDF image filters, predictors, and decompression pipelines.
 
-Validates 100% end-to-end decoding coverage across:
+Validates end-to-end decoding coverage across:
 - FlateDecode (/FlateDecode, /Fl) with TIFF 2 and PNG 10-15 predictors.
 - LZWDecode (/LZWDecode, /LZW) with EarlyChange=0/1 and predictors.
 - CCITTFaxDecode (/CCITTFaxDecode, /CCF) Group 3 (1D/2D) and Group 4 (2D).
