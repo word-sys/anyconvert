@@ -282,14 +282,21 @@ def _table_layout_to_dir(tbl_layout: TableLayout) -> Table:
 
 def _flip_svg_path_y(svg_path: str, page_height: float) -> str:
     """Transform SVG path coordinates from PDF space (bottom-up) to doc space (top-down)."""
-    tokens = svg_path.split()
+    cleaned = svg_path.replace(",", " ")
+    tokens = cleaned.split()
     res: List[str] = []
     i = 0
     n = len(tokens)
+    current_cmd = ""
     while i < n:
-        cmd = tokens[i]
-        res.append(cmd)
-        i += 1
+        tok = tokens[i]
+        if tok.isalpha():
+            current_cmd = tok
+            res.append(current_cmd)
+            i += 1
+            continue
+
+        cmd = current_cmd.upper()
         if cmd in ("M", "L"):
             if i + 1 < n:
                 try:
@@ -301,20 +308,27 @@ def _flip_svg_path_y(svg_path: str, page_height: float) -> str:
                     res.append(tokens[i])
                     res.append(tokens[i + 1])
                 i += 2
+            else:
+                res.append(tokens[i])
+                i += 1
         elif cmd == "C":
-            for _ in range(3):
-                if i + 1 < n:
-                    try:
+            if i + 5 < n:
+                try:
+                    for _ in range(3):
                         x = float(tokens[i])
                         y = float(tokens[i + 1])
                         res.append(f"{x:.2f}")
                         res.append(f"{page_height - y:.2f}")
-                    except ValueError:
-                        res.append(tokens[i])
-                        res.append(tokens[i + 1])
-                    i += 2
-        elif cmd == "Z":
-            pass
+                        i += 2
+                except ValueError:
+                    res.append(tokens[i])
+                    i += 1
+            else:
+                res.append(tokens[i])
+                i += 1
+        else:
+            res.append(tokens[i])
+            i += 1
     return " ".join(res)
 
 
@@ -425,6 +439,14 @@ class DocumentIRBuilder:
                         fill_color=v.fill_color,
                         stroke_color=v.stroke_color,
                         stroke_width=v.stroke_width,
+                        fill_rule=v.fill_rule,
+                        fill_alpha=v.fill_alpha,
+                        stroke_alpha=v.stroke_alpha,
+                        line_cap=v.line_cap,
+                        line_join=v.line_join,
+                        miter_limit=v.miter_limit,
+                        dash_array=list(v.dash_array),
+                        dash_phase=v.dash_phase,
                     )
                 )
 

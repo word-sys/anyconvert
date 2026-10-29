@@ -12,7 +12,7 @@ Adheres to ISO 32000-1 §8 (Graphics) and §9 (Text):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from anyconvert.common.color import Color
 from anyconvert.common.geometry import BoundingBox, Matrix3x3, Point
@@ -59,6 +59,11 @@ class VectorElement:
     fill_rule: str = "nonzero"  # "nonzero" or "evenodd"
     fill_alpha: float = 1.0
     stroke_alpha: float = 1.0
+    line_cap: int = 0
+    line_join: int = 0
+    miter_limit: float = 10.0
+    dash_array: Tuple[float, ...] = ()
+    dash_phase: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,6 +323,52 @@ class ContentInterpreter:
                     )
                 except (ValueError, TypeError):
                     pass
+        elif op == "CS":
+            if stack:
+                cs_val = stack[-1]
+                self._state_stack.current.stroke_color_space = (
+                    cs_val.name if isinstance(cs_val, PDFName) else str(cs_val)
+                )
+        elif op == "cs":
+            if stack:
+                cs_val = stack[-1]
+                self._state_stack.current.fill_color_space = (
+                    cs_val.name if isinstance(cs_val, PDFName) else str(cs_val)
+                )
+        elif op in ("SC", "SCN"):
+            nums = [float(x) for x in stack if isinstance(x, (int, float))]
+            if len(nums) == 1:
+                self._state_stack.current.stroke_color = Color.from_gray(
+                    nums[0], a=self._state_stack.current.stroke_alpha
+                )
+            elif len(nums) == 3:
+                self._state_stack.current.stroke_color = Color(
+                    int(nums[0] * 255.0) if nums[0] <= 1.0 else int(nums[0]),
+                    int(nums[1] * 255.0) if nums[1] <= 1.0 else int(nums[1]),
+                    int(nums[2] * 255.0) if nums[2] <= 1.0 else int(nums[2]),
+                    self._state_stack.current.stroke_alpha,
+                )
+            elif len(nums) >= 4:
+                self._state_stack.current.stroke_color = Color.from_cmyk(
+                    nums[0], nums[1], nums[2], nums[3], a=self._state_stack.current.stroke_alpha
+                )
+        elif op in ("sc", "scn"):
+            nums = [float(x) for x in stack if isinstance(x, (int, float))]
+            if len(nums) == 1:
+                self._state_stack.current.fill_color = Color.from_gray(
+                    nums[0], a=self._state_stack.current.fill_alpha
+                )
+            elif len(nums) == 3:
+                self._state_stack.current.fill_color = Color(
+                    int(nums[0] * 255.0) if nums[0] <= 1.0 else int(nums[0]),
+                    int(nums[1] * 255.0) if nums[1] <= 1.0 else int(nums[1]),
+                    int(nums[2] * 255.0) if nums[2] <= 1.0 else int(nums[2]),
+                    self._state_stack.current.fill_alpha,
+                )
+            elif len(nums) >= 4:
+                self._state_stack.current.fill_color = Color.from_cmyk(
+                    nums[0], nums[1], nums[2], nums[3], a=self._state_stack.current.fill_alpha
+                )
 
         # 3. Path Construction Operators
         elif op == "m":
@@ -643,6 +694,11 @@ class ContentInterpreter:
                 fill_rule=fill_rule,
                 fill_alpha=self._state_stack.current.fill_alpha,
                 stroke_alpha=self._state_stack.current.stroke_alpha,
+                line_cap=self._state_stack.current.line_cap,
+                line_join=self._state_stack.current.line_join,
+                miter_limit=self._state_stack.current.miter_limit,
+                dash_array=tuple(self._state_stack.current.dash_array),
+                dash_phase=self._state_stack.current.dash_phase,
             )
         )
         self._current_path.clear()
@@ -690,6 +746,24 @@ class ContentInterpreter:
                 self._state_stack.current.line_join = int(self._dereference(gs_obj["LJ"]))
             except (ValueError, TypeError):
                 pass
+        if "ML" in gs_obj:
+            try:
+                self._state_stack.current.miter_limit = float(self._dereference(gs_obj["ML"]))
+            except (ValueError, TypeError):
+                pass
+        if "D" in gs_obj:
+            d_entry = self._dereference(gs_obj["D"])
+            if isinstance(d_entry, (list, PDFArray)) and len(d_entry) >= 2:
+                try:
+                    d_arr = self._dereference(d_entry[0])
+                    d_phase = float(self._dereference(d_entry[1]))
+                    if isinstance(d_arr, (list, PDFArray)):
+                        self._state_stack.current.dash_array = [
+                            float(self._dereference(x)) for x in d_arr
+                        ]
+                    self._state_stack.current.dash_phase = d_phase
+                except (ValueError, TypeError):
+                    pass
         if "BM" in gs_obj:
             bm = self._dereference(gs_obj["BM"])
             if isinstance(bm, (str, PDFName)):

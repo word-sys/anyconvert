@@ -10,6 +10,7 @@ from anyconvert.pdf.graphics.path import (
     MoveTo,
     PathSegment,
     Rectangle,
+    SubPath,
     VectorPath,
 )
 from anyconvert.pdf.graphics.state import (
@@ -28,6 +29,7 @@ __all__ = [
     "CurveTo",
     "Rectangle",
     "ClosePath",
+    "SubPath",
     "VectorPath",
     "PDFImage",
 ]

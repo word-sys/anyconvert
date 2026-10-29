@@ -241,6 +241,14 @@ class VectorBlock:
     fill_color: Optional[Color] = None
     stroke_color: Optional[Color] = None
     stroke_width: float = 1.0
+    fill_rule: str = "nonzero"
+    fill_alpha: float = 1.0
+    stroke_alpha: float = 1.0
+    line_cap: int = 0
+    line_join: int = 0
+    miter_limit: float = 10.0
+    dash_array: List[float] = field(default_factory=list)
+    dash_phase: float = 0.0
 
 
 BlockNode = Union[Paragraph, Table, ImageBlock, VectorBlock]

@@ -22,6 +22,8 @@ class GraphicsState:
     ctm: Matrix3x3 = field(default_factory=Matrix3x3.identity)
     stroke_color: Color = field(default_factory=lambda: Color(0, 0, 0, 1.0))
     fill_color: Color = field(default_factory=lambda: Color(0, 0, 0, 1.0))
+    stroke_color_space: str = "DeviceRGB"
+    fill_color_space: str = "DeviceRGB"
     stroke_alpha: float = 1.0
     fill_alpha: float = 1.0
     blend_mode: str = "Normal"
@@ -39,6 +41,8 @@ class GraphicsState:
             ctm=self.ctm,
             stroke_color=self.stroke_color,
             fill_color=self.fill_color,
+            stroke_color_space=self.stroke_color_space,
+            fill_color_space=self.fill_color_space,
             stroke_alpha=self.stroke_alpha,
             fill_alpha=self.fill_alpha,
             blend_mode=self.blend_mode,
