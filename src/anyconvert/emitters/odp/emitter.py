@@ -14,6 +14,7 @@ from anyconvert.emitters.base import (
     color_to_hex,
     xml_escape,
 )
+from anyconvert.emitters.odp.content import render_vector_path_odp
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
     Alignment,
@@ -161,6 +162,17 @@ class OdpEmitter(BaseEmitter):
                             image_counter=image_counter,
                         )
                     )
+                elif isinstance(block, VectorBlock):
+                    shape_id = len(shapes_xml) + 1
+                    v_xml = self._render_vector_shape(
+                        vec=block,
+                        auto_styles=auto_styles,
+                        shape_id=shape_id,
+                        slide_width=page.width,
+                        slide_height=page.height,
+                    )
+                    if v_xml:
+                        shapes_xml.append(v_xml)
 
             if page.footer:
                 for p in page.footer.content:
@@ -335,6 +347,23 @@ class OdpEmitter(BaseEmitter):
         return f"""        <draw:frame draw:name="{alt_text}" draw:style-name="gr1" svg:x="{x_pt}" svg:y="{y_pt}" svg:width="{w_pt}" svg:height="{h_pt}">
           <draw:image xlink:href="{part_name}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>
         </draw:frame>"""
+
+    def _render_vector_shape(
+        self,
+        vec: VectorBlock,
+        auto_styles: List[str],
+        shape_id: int,
+        slide_width: float,
+        slide_height: float,
+    ) -> str:
+        """Render a VectorBlock to ODF Presentation <draw:path>."""
+        return render_vector_path_odp(
+            vec=vec,
+            auto_styles=auto_styles,
+            shape_id=shape_id,
+            slide_width=slide_width,
+            slide_height=slide_height,
+        )
 
     def _render_table_shape(
         self,

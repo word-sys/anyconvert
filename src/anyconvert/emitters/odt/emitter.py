@@ -14,6 +14,7 @@ from anyconvert.emitters.base import (
     color_to_hex,
     xml_escape,
 )
+from anyconvert.emitters.odt.content import render_vector_path_odt
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
     Alignment,
@@ -601,54 +602,12 @@ class OdtEmitter(BaseEmitter):
         page_height: float,
     ) -> str:
         """Render a VectorBlock to ODF <draw:path>."""
-        if not vec.svg_path:
-            return ""
-
-        v_style_name = f"V{len(auto_styles) + 1}"
-        props: List[str] = [
-            'style:wrap="none"',
-            'style:vertical-pos="from-top"',
-            'style:vertical-rel="page"',
-            'style:horizontal-pos="from-left"',
-            'style:horizontal-rel="page"',
-        ]
-
-        if vec.stroke_color is not None and vec.stroke_width > 0:
-            stroke_hex = _color_to_odf(vec.stroke_color)
-            props.append(f'svg:stroke-color="{stroke_hex}"')
-            props.append(f'svg:stroke-width="{vec.stroke_width:.2f}pt"')
-            if vec.stroke_color.a < 1.0:
-                props.append(f'svg:stroke-opacity="{vec.stroke_color.a:.2f}"')
-        else:
-            props.append('draw:stroke="none"')
-
-        if vec.fill_color is not None:
-            fill_hex = _color_to_odf(vec.fill_color)
-            props.append('draw:fill="solid"')
-            props.append(f'draw:fill-color="{fill_hex}"')
-            if vec.fill_color.a < 1.0:
-                props.append(f'draw:opacity="{vec.fill_color.a:.2f}"')
-        else:
-            props.append('draw:fill="none"')
-
-        auto_styles.append(
-            f'  <style:style style:name="{v_style_name}" style:family="graphic">\n'
-            f'    <style:graphic-properties {" ".join(props)}/>\n'
-            f'  </style:style>'
-        )
-
-        escaped_d = xml_escape(vec.svg_path)
-        sw = max(0.5, vec.stroke_width)
-        bx0 = vec.bbox.x0
-        by0 = vec.bbox.y0
-        bw = max(sw, vec.bbox.width)
-        bh = max(sw, vec.bbox.height)
-
-        return (
-            f'        <draw:path draw:style-name="{v_style_name}" svg:d="{escaped_d}" '
-            f'svg:x="{bx0:.1f}pt" svg:y="{by0:.1f}pt" svg:width="{bw:.1f}pt" svg:height="{bh:.1f}pt" '
-            f'svg:viewBox="{bx0:.1f} {by0:.1f} {bw:.1f} {bh:.1f}" '
-            f'text:anchor-type="page" text:anchor-page-num="{page_num}"/>'
+        return render_vector_path_odt(
+            vec=vec,
+            auto_styles=auto_styles,
+            page_num=page_num,
+            page_width=page_width,
+            page_height=page_height,
         )
 
     def _build_styles_xml(

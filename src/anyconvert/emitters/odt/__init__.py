@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from anyconvert.emitters.odt.content import render_vector_path_odt
 from anyconvert.emitters.odt.emitter import OdtEmitter
 
-__all__ = ["OdtEmitter"]
+__all__ = ["OdtEmitter", "render_vector_path_odt"]
