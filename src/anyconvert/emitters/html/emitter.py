@@ -19,6 +19,7 @@ from anyconvert.emitters.base import (
 from anyconvert.emitters.html.canvas import render_canvas_body
 from anyconvert.emitters.html.css import build_default_css
 from anyconvert.emitters.html.flow import render_flow_body
+from anyconvert.emitters.html.packaging import HTMLPackager
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
     BlockNode,
@@ -71,6 +72,8 @@ class HTMLEmitter(BaseEmitter):
         doc_ir: DocumentIR,
         mode: ConversionMode = ConversionMode.FLOW,
         title: str = "",
+        custom_css: str = "",
+        offline_csp: bool = True,
     ) -> str:
         """Render a DocumentIR hierarchy into a standalone HTML5 string.
 
@@ -78,38 +81,14 @@ class HTMLEmitter(BaseEmitter):
             doc_ir: Validated DocumentIR hierarchy.
             mode: Conversion mode (FLOW or CANVAS).
             title: Optional document title.
+            custom_css: Optional additional CSS stylesheet rules.
+            offline_csp: If True, injects strict offline Content-Security-Policy meta tag.
 
         Returns:
-            Complete HTML5 document string.
+            Complete self-contained HTML5 document string.
         """
-        if not doc_ir.pages:
-            raise SerializationError("Cannot emit HTML from empty DocumentIR")
-
-        doc_title = title or doc_ir.metadata.get("Title", "Document")
-        escaped_title = xml_escape(doc_title)
-        css = build_default_css(mode=mode)
-
-        if mode == ConversionMode.CANVAS:
-            body_content = self._render_canvas_body(doc_ir)
-        else:
-            body_content = self._render_flow_body(doc_ir)
-
-        return (
-            '<!DOCTYPE html>\n'
-            '<html lang="en">\n'
-            '<head>\n'
-            '  <meta charset="UTF-8">\n'
-            '  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
-            f'  <title>{escaped_title}</title>\n'
-            '  <style type="text/css">\n'
-            f'{css}\n'
-            '  </style>\n'
-            '</head>\n'
-            '<body>\n'
-            f'{body_content}\n'
-            '</body>\n'
-            '</html>'
-        )
+        packager = HTMLPackager(offline_csp=offline_csp)
+        return packager.package(doc_ir, mode=mode, title=title, custom_css=custom_css)
 
     def _render_flow_body(self, doc_ir: DocumentIR) -> str:
         """Render DocumentIR in semantic FLOW mode."""
