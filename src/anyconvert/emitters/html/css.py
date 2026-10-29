@@ -92,8 +92,47 @@ FLOW_MODE_CSS = """
 
 .document-flow ul,
 .document-flow ol {
-  margin-left: 1.5em;
+  margin-left: 2em;
   margin-bottom: 1em;
+}
+
+.document-flow li {
+  margin-bottom: 0.35em;
+  line-height: 1.5;
+}
+
+.document-flow code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background-color: var(--color-table-stripe);
+  padding: 0.15em 0.35em;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+}
+
+.document-flow a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.document-flow a:hover {
+  color: #1d4ed8;
+}
+
+.document-flow figure.flow-figure {
+  margin: 1.5em auto;
+  text-align: center;
+}
+
+.document-flow figure.flow-figure figcaption {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  margin-top: 0.5em;
+}
+
+.document-flow .flow-vector {
+  margin: 1.5em auto;
+  text-align: center;
 }
 
 .document-flow table.pure-table {

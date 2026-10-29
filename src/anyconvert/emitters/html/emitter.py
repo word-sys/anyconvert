@@ -17,6 +17,7 @@ from anyconvert.emitters.base import (
     xml_escape,
 )
 from anyconvert.emitters.html.css import build_default_css
+from anyconvert.emitters.html.flow import render_flow_body
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
     BlockNode,
@@ -111,41 +112,7 @@ class HTMLEmitter(BaseEmitter):
 
     def _render_flow_body(self, doc_ir: DocumentIR) -> str:
         """Render DocumentIR in semantic FLOW mode."""
-        lines: List[str] = ['  <main class="document-flow">']
-
-        for page_idx, page in enumerate(doc_ir.pages):
-            page_num = page_idx + 1
-            lines.append(f'    <article id="page-{page_num}">')
-
-            # Marginal header
-            if page.header and page.header.content:
-                lines.append('      <header class="page-header">')
-                for p in page.header.content:
-                    lines.append(self._render_paragraph_flow(p, indent="        "))
-                lines.append('      </header>')
-
-            # Page content blocks
-            for block in page.blocks:
-                if isinstance(block, Paragraph):
-                    lines.append(self._render_paragraph_flow(block, indent="      "))
-                elif isinstance(block, Table):
-                    lines.append(self._render_table_flow(block, indent="      "))
-                elif isinstance(block, ImageBlock):
-                    lines.append(self._render_image_flow(block, indent="      "))
-                elif isinstance(block, VectorBlock):
-                    lines.append(self._render_vector_flow(block, indent="      "))
-
-            # Marginal footer
-            if page.footer and page.footer.content:
-                lines.append('      <footer class="page-footer">')
-                for p in page.footer.content:
-                    lines.append(self._render_paragraph_flow(p, indent="        "))
-                lines.append('      </footer>')
-
-            lines.append('    </article>')
-
-        lines.append('  </main>')
-        return "\n".join(lines)
+        return render_flow_body(doc_ir)
 
     def _render_canvas_body(self, doc_ir: DocumentIR) -> str:
         """Render DocumentIR in pixel-accurate CANVAS mode."""
