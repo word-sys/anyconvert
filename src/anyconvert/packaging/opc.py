@@ -36,6 +36,7 @@ CT_JPEG = "image/jpeg"
 CT_GIF = "image/gif"
 CT_TIFF = "image/tiff"
 CT_SVG = "image/svg+xml"
+CT_WEBP = "image/webp"
 
 CT_WORDPROCESSING_DOCUMENT = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
@@ -310,6 +311,7 @@ class OPCPackage:
             "tif": CT_TIFF,
             "tiff": CT_TIFF,
             "svg": CT_SVG,
+            "webp": CT_WEBP,
         }
 
     def add_default_content_type(self, extension: str, content_type: str) -> None:
@@ -649,6 +651,7 @@ __all__ = [
     "CT_GIF",
     "CT_TIFF",
     "CT_SVG",
+    "CT_WEBP",
     "CT_WORDPROCESSING_DOCUMENT",
     "CT_WORDPROCESSING_STYLES",
     "CT_WORDPROCESSING_NUMBERING",

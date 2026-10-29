@@ -222,6 +222,13 @@ class ImageBlock:
         detected = detect_image_format(self.image_bytes)
         if detected != "unknown":
             self.format = detected
+        if self.format == "webp" and (self.pixel_width is None or self.pixel_height is None):
+            from anyconvert.utils.webp import parse_webp_info
+
+            info = parse_webp_info(self.image_bytes)
+            if info is not None:
+                self.pixel_width = info.width
+                self.pixel_height = info.height
         return self.format
 
 

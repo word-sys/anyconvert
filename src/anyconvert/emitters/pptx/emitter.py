@@ -49,6 +49,7 @@ from anyconvert.packaging.opc import (
     CT_PRESENTATION_SLIDEMASTER,
     CT_SVG,
     CT_TIFF,
+    CT_WEBP,
     OPCPackage,
     OPCPart,
     RT_CORE_PROPERTIES,
@@ -356,6 +357,8 @@ class PptxEmitter(BaseEmitter):
             if not img_bytes.startswith(b"\x89PNG"):
                 rgba_buf, _, w, h = jpx_to_rgba(img_bytes)
                 img_bytes = encode_rgba_png(w, h, rgba_buf)
+        elif fmt == "webp":
+            content_type = CT_WEBP
         else:
             content_type = CT_PNG
 
