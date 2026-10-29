@@ -16,6 +16,7 @@ from anyconvert.emitters.base import (
     pt_to_hundredth_pt,
     xml_escape,
 )
+from anyconvert.emitters.pptx.shapes import render_vector_shape
 from anyconvert.emitters.pptx.theme import (
     build_presentation_xml,
     build_slide_layout_xml,
@@ -234,6 +235,16 @@ class PptxEmitter(BaseEmitter):
                 )
                 shape_elements.append(pic_xml)
                 shape_id += 1
+            elif isinstance(block, VectorBlock):
+                vec_xml = self._render_vector_shape(
+                    vec=block,
+                    shape_id=shape_id,
+                    slide_width=page.width,
+                    slide_height=page.height,
+                )
+                if vec_xml:
+                    shape_elements.append(vec_xml)
+                    shape_id += 1
 
         if page.footer:
             for p in page.footer.content:
@@ -267,6 +278,16 @@ class PptxEmitter(BaseEmitter):
   <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
 </p:sld>"""
         return xml, slide_image_rels
+
+    def _render_vector_shape(
+        self,
+        vec: VectorBlock,
+        shape_id: int,
+        slide_width: float,
+        slide_height: float,
+    ) -> str:
+        """Render a VectorBlock into a PresentationML shape (<p:sp>)."""
+        return render_vector_shape(vec, shape_id, slide_width, slide_height)
 
     def _render_paragraph_shape(self, p: Paragraph, shape_id: int) -> str:
         """Render a Paragraph into a DrawingML text shape (<p:sp>)."""
