@@ -272,6 +272,22 @@ class TestEndToEndConversion(unittest.TestCase):
         self.assertIn("<text", svg_text)
         self.assertIn("<rect", svg_text)
 
+    def test_html_conversion_flow_and_canvas(self) -> None:
+        """Verify end-to-end PDF to HTML conversion in flow and canvas modes."""
+        html_flow = convert(self.pdf_bytes, output_format="html", mode="flow")
+        self.assertIsInstance(html_flow, bytes)
+        flow_text = html_flow.decode("utf-8")
+        self.assertIn("<!DOCTYPE html>", flow_text)
+        self.assertIn('<main class="document-flow">', flow_text)
+        self.assertIn("Annual Corporate Report 2026", flow_text)
+
+        html_canvas = convert(self.pdf_bytes, output_format="html", mode="canvas")
+        self.assertIsInstance(html_canvas, bytes)
+        canvas_text = html_canvas.decode("utf-8")
+        self.assertIn("<!DOCTYPE html>", canvas_text)
+        self.assertIn('<div class="canvas-wrapper">', canvas_text)
+        self.assertIn("Annual Corporate Report 2026", canvas_text)
+
 
 class TestAPIUsageAndEdgeCases(unittest.TestCase):
     """Tests for API convenience methods, argument validation, and error paths."""
