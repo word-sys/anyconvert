@@ -23,7 +23,7 @@ from anyconvert.emitters.html.flow import render_flow_body
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import DocumentIR, detect_image_format
 
-PACKAGE_VERSION = "0.1.0"
+PACKAGE_VERSION = "0.1.11"
 
 DATA_URI_PATTERN = re.compile(r'data:(image/[a-zA-Z0-9\+\-\.]+);base64,([A-Za-z0-9+/=]+)')
 IMG_SRC_PATTERN = re.compile(r'<img\s+([^>]*?)src=["\']([^"\']+)["\']([^>]*?)>', re.IGNORECASE)

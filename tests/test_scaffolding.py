@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import pathlib
 import subprocess
 import sys
@@ -38,7 +39,7 @@ class TestScaffoldingAndPackaging(unittest.TestCase):
 
     def test_package_metadata(self) -> None:
         """Verify top-level package metadata."""
-        self.assertEqual(anyconvert.__version__, "0.1.0")
+        self.assertEqual(anyconvert.__version__, "0.1.11")
         self.assertTrue(isinstance(anyconvert.__author__, str))
         self.assertTrue(isinstance(anyconvert.__license__, str))
 
@@ -51,12 +52,16 @@ class TestScaffoldingAndPackaging(unittest.TestCase):
     def test_cli_version_flag(self) -> None:
         """Verify that invoking CLI with --version returns the correct version string."""
         cmd = [sys.executable, "-m", "anyconvert", "--version"]
+        repo_root = pathlib.Path(__file__).parent.parent
+        env = dict(os.environ)
+        env["PYTHONPATH"] = f"{repo_root / 'src'}:{env.get('PYTHONPATH', '')}"
         result = subprocess.run(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            cwd=str(pathlib.Path(__file__).parent.parent),
+            cwd=str(repo_root),
+            env=env,
         )
         self.assertEqual(result.returncode, 0)
         self.assertIn(anyconvert.__version__, result.stdout)
