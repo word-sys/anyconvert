@@ -16,6 +16,7 @@ from anyconvert.emitters.base import (
     color_to_hex,
     xml_escape,
 )
+from anyconvert.emitters.html.canvas import render_canvas_body
 from anyconvert.emitters.html.css import build_default_css
 from anyconvert.emitters.html.flow import render_flow_body
 from anyconvert.exceptions import SerializationError
@@ -116,40 +117,7 @@ class HTMLEmitter(BaseEmitter):
 
     def _render_canvas_body(self, doc_ir: DocumentIR) -> str:
         """Render DocumentIR in pixel-accurate CANVAS mode."""
-        lines: List[str] = ['  <div class="canvas-wrapper">']
-
-        for page_idx, page in enumerate(doc_ir.pages):
-            page_num = page_idx + 1
-            lines.append(
-                f'    <div id="page-{page_num}" class="canvas-page" '
-                f'style="width: {page.width:.1f}pt; height: {page.height:.1f}pt;">'
-            )
-
-            # Vector layer (rendered first as background graphics)
-            vector_blocks = [b for b in page.blocks if isinstance(b, VectorBlock)]
-            if vector_blocks:
-                lines.append(
-                    f'      <svg class="canvas-vector" viewBox="0 0 {page.width:.1f} {page.height:.1f}" '
-                    f'width="{page.width:.1f}pt" height="{page.height:.1f}pt">'
-                )
-                for vb in vector_blocks:
-                    lines.append(self._render_vector_canvas(vb, indent="        "))
-                lines.append('      </svg>')
-
-            # Images
-            for block in page.blocks:
-                if isinstance(block, ImageBlock):
-                    lines.append(self._render_image_canvas(block, indent="      "))
-
-            # Text paragraphs
-            for block in page.blocks:
-                if isinstance(block, Paragraph):
-                    lines.append(self._render_paragraph_canvas(block, indent="      "))
-
-            lines.append('    </div>')
-
-        lines.append('  </div>')
-        return "\n".join(lines)
+        return render_canvas_body(doc_ir)
 
     # --------------------------------------------------------------------------
     # Flow Mode Element Renderers
