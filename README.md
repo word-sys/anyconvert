@@ -50,7 +50,7 @@
 
 ## Known Issues
 - **Slide Orientation (ODP & PPTX)**:
-  - If input PDF page aspect ratio is vertical/portrait, ODP and PPTX default slide dimensions currently scale to widescreen aspect ratios (resolving in Phase 12).
+  - If input PDF page aspect ratio is vertical/portrait, ODP and PPTX default slide dimensions currently scale to widescreen aspect ratios.
 
 ---
 
