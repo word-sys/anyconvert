@@ -15,6 +15,7 @@ from anyconvert.common.reader import ByteReader
 from anyconvert.emitters.base import BaseEmitter, ConversionMode
 from anyconvert.emitters.docx import DocxEmitter
 from anyconvert.emitters.html import HTMLEmitter
+from anyconvert.emitters.md import MarkdownEmitter
 from anyconvert.emitters.odp import OdpEmitter
 from anyconvert.emitters.odt import OdtEmitter
 from anyconvert.emitters.pptx import PptxEmitter
@@ -33,7 +34,7 @@ from anyconvert.pdf.content.interpreter import ContentInterpreter, InterpreterOu
 from anyconvert.pdf.document import PDFDocument
 from anyconvert.pdf.parser import PDFArray, PDFDict, PDFIndirectRef
 
-SUPPORTED_FORMATS: Set[str] = {"docx", "pptx", "odt", "odp", "txt", "svg", "html"}
+SUPPORTED_FORMATS: Set[str] = {"docx", "pptx", "odt", "odp", "txt", "svg", "html", "md"}
 
 
 def _resolve_conversion_mode(mode: Union[ConversionMode, str]) -> ConversionMode:
@@ -69,6 +70,8 @@ def _get_emitter(output_format: str) -> BaseEmitter:
         return SvgEmitter()
     elif fmt == "html":
         return HTMLEmitter()
+    elif fmt in ("md", "markdown"):
+        return MarkdownEmitter()
     raise UnsupportedFormatError(
         format_name=output_format,
         supported_formats=sorted(list(SUPPORTED_FORMATS)),

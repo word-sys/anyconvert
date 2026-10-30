@@ -288,6 +288,15 @@ class TestEndToEndConversion(unittest.TestCase):
         self.assertIn('<div class="canvas-wrapper">', canvas_text)
         self.assertIn("Annual Corporate Report 2026", canvas_text)
 
+    def test_md_conversion(self) -> None:
+        """Verify end-to-end PDF to Markdown conversion."""
+        md_data = convert(self.pdf_bytes, output_format="md")
+        self.assertIsInstance(md_data, bytes)
+        md_text = md_data.decode("utf-8")
+        self.assertIn("# Annual Corporate Report 2026", md_text)
+        self.assertIn("- Global Operations Overview", md_text)
+        self.assertIn("Quarter 1 Revenue: $4.2B", md_text)
+
 
 class TestAPIUsageAndEdgeCases(unittest.TestCase):
     """Tests for API convenience methods, argument validation, and error paths."""
