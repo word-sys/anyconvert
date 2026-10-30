@@ -241,6 +241,127 @@ def test_markdown_tables_and_escaping() -> None:
     assert "| :---------------: | :----: |" in text
 
 
+def test_markdown_complex_table_matrix_spans_and_multiline() -> None:
+    """Test table matrix handling with col_span, row_span, multi-line cells, and ragged rows."""
+    # Row 1 (Header): cell 1 has col_span=2
+    hdr_c1 = TableCell(
+        content=[Paragraph(runs=[_make_run("Spanned Header")])],
+        col_span=2,
+    )
+    hdr_c2 = TableCell(content=[Paragraph(runs=[_make_run("Notes")])])
+    row1 = TableRow(cells=[hdr_c1, hdr_c2], is_header=True)
+
+    # Row 2: cell 1 has row_span=2, cell 2 has multi-paragraph content
+    p_multi1 = Paragraph(runs=[_make_run("Line 1")])
+    p_multi2 = Paragraph(runs=[_make_run("Line 2 | extra")])
+    row2_c1 = TableCell(content=[Paragraph(runs=[_make_run("Spanned Row")])], row_span=2)
+    row2_c2 = TableCell(content=[p_multi1, p_multi2])
+    row2_c3 = TableCell(content=[Paragraph(runs=[_make_run("Trailing")])])
+    row2 = TableRow(cells=[row2_c1, row2_c2, row2_c3])
+
+    # Row 3: ragged row (only 1 cell provided, row2_c1 spans into column 0)
+    row3_c2 = TableCell(content=[Paragraph(runs=[_make_run("Cell 3-2")])])
+    row3 = TableRow(cells=[row3_c2])
+
+    table = Table(rows=[row1, row2, row3])
+    doc = DocumentIR(pages=[DocumentPage(1, 612.0, 792.0, blocks=[table])])
+    text = MarkdownEmitter().render(doc)
+
+    assert "Spanned Header" in text
+    assert "Line 1<br>Line 2 \\| extra" in text
+    assert "Spanned Row" in text
+    assert "Cell 3-2" in text
+
+    # Verify that each line has exact column count matching header (ignoring escaped pipes)
+    table_lines = [ln for ln in text.splitlines() if ln.startswith("|")]
+    assert len(table_lines) == 4  # header, delimiter, row2, row3
+    for line in table_lines:
+        assert line.replace(r"\|", "").count("|") == 4  # 3 columns require 4 delimiter pipes
+
+
+def test_markdown_table_column_alignment_detection() -> None:
+    """Test automatic column alignment resolution for left, right (numeric), and center."""
+    h1 = TableCell(content=[Paragraph(runs=[_make_run("Item")])])
+    h2 = TableCell(content=[Paragraph(runs=[_make_run("Price")])])
+    h3 = TableCell(content=[Paragraph(runs=[_make_run("Status")])])
+    row1 = TableRow(cells=[h1, h2, h3], is_header=True)
+
+    d1 = TableCell(content=[Paragraph(runs=[_make_run("Widget")])])
+    d2 = TableCell(content=[Paragraph(runs=[_make_run("$1,234.50")])])
+    d3 = TableCell(content=[Paragraph(runs=[_make_run("Active")], alignment=Alignment.CENTER)])
+    row2 = TableRow(cells=[d1, d2, d3])
+
+    d4 = TableCell(content=[Paragraph(runs=[_make_run("Gadget")])])
+    d5 = TableCell(content=[Paragraph(runs=[_make_run("$42.00")])])
+    d6 = TableCell(content=[Paragraph(runs=[_make_run("Pending")], alignment=Alignment.CENTER)])
+    row3 = TableRow(cells=[d4, d5, d6])
+
+    table = Table(rows=[row1, row2, row3])
+    doc = DocumentIR(pages=[DocumentPage(1, 612.0, 792.0, blocks=[table])])
+    text = MarkdownEmitter().render(doc)
+
+    # Delimiter row should have: Left (:---), Right (---:), Center (:---:)
+    delims_line = [ln for ln in text.splitlines() if ":-" in ln or "-:" in ln][0]
+    parts = [p.strip() for p in delims_line.strip("|").split("|")]
+    assert parts[0].startswith(":") and not parts[0].endswith(":")  # Left
+    assert not parts[1].startswith(":") and parts[1].endswith(":")  # Right (numeric)
+    assert parts[2].startswith(":") and parts[2].endswith(":")      # Center
+
+
+def test_markdown_fenced_code_blocks() -> None:
+    """Test fenced code blocks with language hints and consecutive grouping."""
+    p_code1 = Paragraph(runs=[_make_run("def calculate(x, y):", font_name="CourierNew")])
+    p_code2 = Paragraph(runs=[_make_run("    return x * y + 1", font_name="CourierNew")])
+    p_text = Paragraph(runs=[_make_run("A standard prose explanation.")])
+    p_bash = Paragraph(runs=[_make_run("git status --short", font_name="LiberationMono")])
+
+    doc = DocumentIR(pages=[DocumentPage(1, 612.0, 792.0, blocks=[p_code1, p_code2, p_text, p_bash])])
+    text = MarkdownEmitter().render(doc)
+
+    # p_code1 and p_code2 should be grouped into a single python code fence
+    assert "```python\ndef calculate(x, y):\n    return x * y + 1\n```" in text
+    assert "A standard prose explanation." in text
+    # p_bash should be fenced as bash
+    assert "```bash\ngit status --short\n```" in text
+
+
+def test_markdown_code_fence_backtick_escaping() -> None:
+    """Test that code blocks containing backticks use quadruple backticks."""
+    code_with_backticks = "Use ```markdown to start a fence."
+    p = Paragraph(runs=[_make_run(code_with_backticks, font_name="Consolas")])
+    doc = DocumentIR(pages=[DocumentPage(1, 612.0, 792.0, blocks=[p])])
+    text = MarkdownEmitter().render(doc)
+
+    assert "````" in text
+    assert code_with_backticks in text
+
+
+def test_markdown_extended_task_lists() -> None:
+    """Test Unicode ballot boxes, checkmarks, radio buttons, and text-embedded checkboxes."""
+    blocks: List[BlockNode] = [
+        Paragraph(runs=[_make_run("Unchecked ballot")], list_marker="☐"),
+        Paragraph(runs=[_make_run("Checked ballot")], list_marker="☑"),
+        Paragraph(runs=[_make_run("Checked X ballot")], list_marker="☒"),
+        Paragraph(runs=[_make_run("Checkmark task")], list_marker="✓"),
+        Paragraph(runs=[_make_run("Radio unselected")], list_marker="( )"),
+        Paragraph(runs=[_make_run("Radio selected")], list_marker="(x)"),
+        # Embedded in text without list_marker
+        Paragraph(runs=[_make_run("[ ] Text embedded open task")]),
+        Paragraph(runs=[_make_run("☑ Text embedded done task")]),
+    ]
+    doc = DocumentIR(pages=[DocumentPage(1, 612.0, 792.0, blocks=blocks)])
+    text = MarkdownEmitter(dialect=MarkdownDialect.GFM).render(doc)
+
+    assert "- [ ] Unchecked ballot" in text
+    assert "- [x] Checked ballot" in text
+    assert "- [x] Checked X ballot" in text
+    assert "- [x] Checkmark task" in text
+    assert "- [ ] Radio unselected" in text
+    assert "- [x] Radio selected" in text
+    assert "- [ ] Text embedded open task" in text
+    assert "- [x] Text embedded done task" in text
+
+
 def test_markdown_multipage_and_marginal_headers_footers() -> None:
     """Test marginal headers/footers rendered as blockquotes and horizontal rules for page breaks."""
     header = PageHeaderFooter(content=[Paragraph(runs=[_make_run("Confidential Document")])])

@@ -19,6 +19,10 @@ import re
 from typing import List, Optional, Sequence, Union
 
 from anyconvert.emitters.base import BaseEmitter, ConversionMode
+from anyconvert.emitters.md.tables import (
+    build_delimiter_cells,
+    format_table_matrix,
+)
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
     Alignment,
@@ -165,10 +169,29 @@ class MarkdownEmitter(BaseEmitter):
                 block_strings.append("> " + " ".join(non_empty_hdr))
 
         # Main body content blocks
-        for block in page.blocks:
-            b_str = self.render_block(block, counter)
-            if b_str:
-                block_strings.append(b_str)
+        idx = 0
+        blocks = page.blocks
+        n_blocks = len(blocks)
+
+        while idx < n_blocks:
+            block = blocks[idx]
+            if isinstance(block, Paragraph) and self._is_code_paragraph(block):
+                code_lines: List[str] = [block.text]
+                idx += 1
+                while idx < n_blocks:
+                    next_block = blocks[idx]
+                    if isinstance(next_block, Paragraph) and self._is_code_paragraph(next_block):
+                        code_lines.append(next_block.text)
+                        idx += 1
+                    else:
+                        break
+                code_text = "\n".join(code_lines)
+                block_strings.append(self._render_code_block(code_text))
+            else:
+                b_str = self.render_block(block, counter)
+                if b_str:
+                    block_strings.append(b_str)
+                idx += 1
 
         # Running marginal footer
         if self.render_headers_footers and page.footer and page.footer.content:
@@ -206,9 +229,39 @@ class MarkdownEmitter(BaseEmitter):
             prefix = "#" * level_num
             return f"{prefix} {para_text}"
 
+        # Task list prefix detection embedded in paragraph text
+        if self.dialect == MarkdownDialect.GFM:
+            m_task = re.match(
+                r"^(\[[ xXvV_]\]|\([ xX]\)|[☐☑☒✓✔✕✖])\s+(.*)$",
+                para_text,
+                re.DOTALL,
+            )
+            if m_task:
+                box = m_task.group(1).replace(" ", "")
+                rest = m_task.group(2)
+                is_checked = box in (
+                    "[x]",
+                    "[X]",
+                    "[v]",
+                    "[V]",
+                    "(x)",
+                    "(X)",
+                    "☑",
+                    "☒",
+                    "✓",
+                    "✔",
+                )
+                task_token = "- [x]" if is_checked else "- [ ]"
+                indent = "  " * max(0, p.list_level)
+                return f"{indent}{task_token} {rest}"
+
         # List items: bullet lists, numbered lists, task lists
         if p.list_marker:
             return self._format_list_item(p, para_text)
+
+        # Standalone monospace paragraph formatted as code fence
+        if self._is_code_paragraph(p):
+            return self._render_code_block(p.text)
 
         return para_text
 
@@ -220,9 +273,22 @@ class MarkdownEmitter(BaseEmitter):
         # Check for task checklist in GFM mode
         if self.dialect == MarkdownDialect.GFM:
             marker_nospace = marker.replace(" ", "")
-            if marker_nospace in ("[]", "[_]") or marker in ("[ ]", "☐"):
+            if marker_nospace in ("[]", "[_]", "()") or marker in (
+                "[ ]",
+                "☐",
+                "✕",
+                "✖",
+            ):
                 return f"{indent}- [ ] {para_text}"
-            elif marker_nospace in ("[x]", "[X]") or marker in ("☑", "☒"):
+            elif marker_nospace in (
+                "[x]",
+                "[X]",
+                "[v]",
+                "[V]",
+                "[*]",
+                "(x)",
+                "(X)",
+            ) or marker in ("☑", "☒", "✓", "✔", "√"):
                 return f"{indent}- [x] {para_text}"
 
         # Check for ordered numbering (e.g. "1.", "1)", "(1)", "a.")
@@ -236,6 +302,100 @@ class MarkdownEmitter(BaseEmitter):
             marker = "-"
 
         return f"{indent}{marker} {para_text}"
+
+    def _is_code_paragraph(self, p: Paragraph) -> bool:
+        """Determine if a Paragraph is a code block consisting of monospace runs."""
+        if p.heading_level is not None or p.list_marker:
+            return False
+        non_empty_runs = [r for r in p.runs if r.text.strip()]
+        if not non_empty_runs:
+            return False
+        return all(self._is_monospace(r.font_name) for r in non_empty_runs)
+
+    def _detect_code_language(self, code: str) -> str:
+        """Detect language identifier for Markdown fenced code block."""
+        stripped = code.strip()
+        if not stripped:
+            return ""
+        lines = [ln.strip() for ln in stripped.splitlines() if ln.strip()]
+        if not lines:
+            return ""
+        first_line = lines[0]
+
+        # Python
+        if any(
+            first_line.startswith(kw)
+            for kw in ("import ", "from ", "def ", "class ", "#!/usr/bin/env python")
+        ):
+            return "python"
+        if any(
+            re.search(r"\b(def|elif|import|raise|except)\b", line)
+            for line in lines[:5]
+        ):
+            return "python"
+
+        # Shell / Bash
+        if first_line.startswith(("#!/bin/bash", "#!/bin/sh", "$ ", "> ")):
+            return "bash"
+        if any(
+            re.match(
+                r"^(?:sudo\s+|apt\s+|npm\s+|pip\s+|git\s+|docker\s+|cargo\s+)", line
+            )
+            for line in lines[:3]
+        ):
+            return "bash"
+
+        # JSON
+        if (
+            (stripped.startswith("{") and stripped.endswith("}"))
+            or (stripped.startswith("[") and stripped.endswith("]"))
+        ):
+            if ":" in stripped:
+                return "json"
+
+        # XML / HTML
+        if (
+            stripped.startswith("<!DOCTYPE")
+            or stripped.startswith("<html")
+            or (stripped.startswith("<") and stripped.endswith(">"))
+        ):
+            return "xml"
+
+        # SQL
+        if any(
+            re.match(
+                r"^(?:SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\s+",
+                line,
+                re.IGNORECASE,
+            )
+            for line in lines[:3]
+        ):
+            return "sql"
+
+        # Rust
+        if any(
+            line.startswith(("fn ", "pub fn ", "let mut ", "impl "))
+            for line in lines[:3]
+        ):
+            return "rust"
+
+        # C / C++
+        if any(
+            line.startswith(("#include", "int main(")) for line in lines[:3]
+        ):
+            return "c"
+
+        return ""
+
+    def _render_code_block(self, code_text: str) -> str:
+        """Wrap code text in a Markdown fenced code block with appropriate fences."""
+        lang = self._detect_code_language(code_text)
+        fence = "```"
+        if "```" in code_text:
+            matches = list(re.finditer(r"`+", code_text))
+            max_bt = max(len(m.group(0)) for m in matches) if matches else 3
+            fence = "`" * max(3, max_bt + 1)
+        return f"{fence}{lang}\n{code_text}\n{fence}"
 
     def render_run(self, r: TextRun) -> str:
         """Render an individual TextRun with inline formatting."""
@@ -296,71 +456,7 @@ class MarkdownEmitter(BaseEmitter):
 
     def render_table(self, table: Table) -> str:
         """Render a Table into a GFM/Markdown tabular grid."""
-        if not table.rows:
-            return ""
-
-        # Build 2D matrix of cleaned cell strings
-        matrix: List[List[str]] = []
-        num_cols = len(table.col_widths) if table.col_widths else 0
-
-        for row in table.rows:
-            row_cells: List[str] = []
-            for cell in row.cells:
-                cell_parts: List[str] = []
-                for b in cell.content:
-                    if isinstance(b, Paragraph):
-                        cell_parts.append(b.text.strip())
-                # Replace newlines with <br> and escape unescaped pipe characters
-                raw_cell = " ".join(cell_parts).strip()
-                cell_txt = raw_cell.replace("\n", "<br>").replace("|", "\\|")
-                row_cells.append(cell_txt)
-
-                # Expand col_span in matrix
-                if cell.col_span > 1:
-                    row_cells.extend([""] * (cell.col_span - 1))
-
-            num_cols = max(num_cols, len(row_cells))
-            matrix.append(row_cells)
-
-        if num_cols == 0:
-            return ""
-
-        # Ensure all rows have equal column counts
-        for row_cells in matrix:
-            while len(row_cells) < num_cols:
-                row_cells.append("")
-
-        # Calculate padding widths
-        col_widths = [3] * num_cols
-        for row_cells in matrix:
-            for c_idx, cell_txt in enumerate(row_cells):
-                col_widths[c_idx] = max(col_widths[c_idx], len(cell_txt))
-
-        lines: List[str] = []
-
-        # Header row
-        header_row = matrix[0]
-        hdr_line = (
-            "| "
-            + " | ".join(cell.ljust(col_widths[i]) for i, cell in enumerate(header_row))
-            + " |"
-        )
-        lines.append(hdr_line)
-
-        # Delimiter row with column alignment markers
-        delims = self._build_delimiter_row(num_cols, col_widths, table.alignment)
-        lines.append("| " + " | ".join(delims) + " |")
-
-        # Body rows
-        for row_cells in matrix[1:]:
-            r_line = (
-                "| "
-                + " | ".join(cell.ljust(col_widths[i]) for i, cell in enumerate(row_cells))
-                + " |"
-            )
-            lines.append(r_line)
-
-        return "\n".join(lines)
+        return format_table_matrix(table, run_renderer=self.render_run)
 
     def _build_delimiter_row(
         self,
@@ -369,16 +465,7 @@ class MarkdownEmitter(BaseEmitter):
         table_alignment: Alignment,
     ) -> List[str]:
         """Construct alignment delimiter strings for Markdown table header separator."""
-        delims: List[str] = []
-        for i in range(num_cols):
-            w = max(3, col_widths[i])
-            if table_alignment == Alignment.CENTER:
-                delims.append(f":{'-' * (w - 2)}:")
-            elif table_alignment == Alignment.RIGHT:
-                delims.append(f"{'-' * (w - 1)}:")
-            else:
-                delims.append(f":{'-' * (w - 1)}")
-        return delims
+        return build_delimiter_cells(col_widths, [table_alignment] * num_cols)
 
     def render_image(self, img: ImageBlock, image_counter: List[int]) -> str:
         """Render ImageBlock into a Markdown image reference."""
