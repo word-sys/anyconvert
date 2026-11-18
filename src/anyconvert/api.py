@@ -8,6 +8,7 @@ Provides zero-dependency unified conversion functions:
 
 from __future__ import annotations
 
+import os
 import pathlib
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
@@ -53,7 +54,52 @@ def _resolve_conversion_mode(mode: Union[ConversionMode, str]) -> ConversionMode
     raise TypeError(f"Invalid mode type: {type(mode).__name__}. Must be ConversionMode or str.")
 
 
-def _get_emitter(output_format: str) -> BaseEmitter:
+def _resolve_image_extraction(
+    extract_images: Optional[Union[bool, str, pathlib.Path]],
+    output_path: Optional[Union[str, pathlib.Path]],
+) -> Tuple[Optional[pathlib.Path], Optional[str]]:
+    """Resolve target directory and Markdown link prefix for image extraction."""
+    if extract_images is None or extract_images is False:
+        return None, None
+
+    if extract_images is True or (isinstance(extract_images, str) and not extract_images.strip()):
+        if output_path is not None:
+            img_dir = pathlib.Path(output_path).parent / "images"
+        else:
+            img_dir = pathlib.Path("images")
+        return img_dir, "images"
+
+    if isinstance(extract_images, (str, pathlib.Path)):
+        img_dir = pathlib.Path(extract_images)
+        if output_path is not None:
+            base_dir = pathlib.Path(output_path).resolve().parent
+            target_dir = img_dir.resolve()
+            try:
+                rel = os.path.relpath(target_dir, start=base_dir)
+                link_prefix = pathlib.Path(rel).as_posix()
+            except ValueError:
+                link_prefix = img_dir.as_posix()
+            return img_dir, link_prefix
+
+        if not img_dir.is_absolute():
+            return img_dir, img_dir.as_posix()
+        try:
+            rel = os.path.relpath(img_dir, start=pathlib.Path.cwd())
+            link_prefix = pathlib.Path(rel).as_posix()
+        except ValueError:
+            link_prefix = img_dir.as_posix()
+        return img_dir, link_prefix
+
+    raise TypeError(
+        f"Invalid extract_images type: {type(extract_images).__name__}. Must be bool, str, Path, or None."
+    )
+
+
+def _get_emitter(
+    output_format: str,
+    image_dir: Optional[Union[str, pathlib.Path]] = None,
+    image_link_prefix: Optional[str] = None,
+) -> BaseEmitter:
     """Instantiate and return the appropriate emitter for the requested format."""
     fmt = output_format.lower().strip().lstrip(".")
     if fmt == "docx":
@@ -71,7 +117,10 @@ def _get_emitter(output_format: str) -> BaseEmitter:
     elif fmt == "html":
         return HTMLEmitter()
     elif fmt in ("md", "markdown"):
-        return MarkdownEmitter()
+        return MarkdownEmitter(
+            image_dir=image_dir,
+            image_link_prefix=image_link_prefix,
+        )
     raise UnsupportedFormatError(
         format_name=output_format,
         supported_formats=sorted(list(SUPPORTED_FORMATS)),
@@ -174,18 +223,20 @@ def convert(
     output_path: Optional[Union[str, pathlib.Path]] = None,
     mode: Union[ConversionMode, str] = ConversionMode.FLOW,
     password: str = "",
+    extract_images: Optional[Union[bool, str, pathlib.Path]] = None,
 ) -> bytes:
-    """Convert a PDF document into a target document format (DOCX, PPTX, ODT, ODP, TXT).
+    """Convert a PDF document into a target document format (DOCX, PPTX, ODT, ODP, TXT, SVG, HTML, MD).
 
     Args:
         input_path: File path, Path object, or raw PDF bytes.
-        output_format: Target format ('docx', 'pptx', 'odt', 'odp', 'txt'). Defaults to 'docx'.
+        output_format: Target format ('docx', 'pptx', 'odt', 'odp', 'txt', 'svg', 'html', 'md').
         output_path: Optional file path to write output. If None, output is only returned as bytes.
         mode: Layout mode, either ConversionMode.FLOW / 'flow' or ConversionMode.CANVAS / 'canvas'.
         password: Optional password if the PDF document is encrypted.
+        extract_images: When truthy or a directory path, write extracted images to disk and link them (Markdown).
 
     Returns:
-        bytes: Converted document binary payload (ZIP archive for DOCX/PPTX/ODT/ODP, UTF-8 for TXT).
+        bytes: Converted document binary payload.
 
     Raises:
         UnsupportedFormatError: If the requested output format is not supported.
@@ -193,7 +244,12 @@ def convert(
         AnyConvertError: If parsing, layout, or serialization fails.
     """
     conv_mode = _resolve_conversion_mode(mode)
-    emitter = _get_emitter(output_format)
+    img_dir, img_prefix = _resolve_image_extraction(extract_images, output_path)
+    emitter = _get_emitter(
+        output_format,
+        image_dir=img_dir,
+        image_link_prefix=img_prefix,
+    )
 
     doc_ir = pdf_to_document_ir(input_path, password=password, mode=conv_mode)
     result_bytes = emitter.emit(doc_ir, mode=conv_mode)
@@ -211,14 +267,16 @@ def convert_bytes(
     output_format: str = "docx",
     mode: Union[ConversionMode, str] = ConversionMode.FLOW,
     password: str = "",
+    extract_images: Optional[Union[bool, str, pathlib.Path]] = None,
 ) -> bytes:
     """Convert raw in-memory PDF bytes into target format bytes.
 
     Args:
         pdf_bytes: Raw bytes of the PDF file.
-        output_format: Target format ('docx', 'pptx', 'odt', 'odp', 'txt').
+        output_format: Target format ('docx', 'pptx', 'odt', 'odp', 'txt', 'svg', 'html', 'md').
         mode: Layout mode ('flow' or 'canvas').
         password: Optional password if the PDF document is encrypted.
+        extract_images: Optional image extraction directory path or True for default 'images/'.
 
     Returns:
         bytes: Converted document binary payload.
@@ -229,6 +287,7 @@ def convert_bytes(
         output_path=None,
         mode=mode,
         password=password,
+        extract_images=extract_images,
     )
 
 

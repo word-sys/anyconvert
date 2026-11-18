@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import pathlib
 import sys
-from typing import Sequence
+from typing import Optional, Sequence, Union
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -56,6 +56,14 @@ def create_parser() -> argparse.ArgumentParser:
         help="Decryption password if the PDF is password-protected.",
     )
     parser.add_argument(
+        "--extract-images",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="DIR",
+        help="Extract embedded images to DIR (defaults to 'images/' next to output) and link in Markdown.",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -83,6 +91,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = create_parser()
     args = parser.parse_args(argv)
 
+    # Recover cleanly if user writes `--extract-images input.pdf` without flag argument
+    if not args.input and isinstance(args.extract_images, str) and args.extract_images:
+        candidate = pathlib.Path(args.extract_images)
+        if candidate.is_file():
+            args.input = args.extract_images
+            args.extract_images = ""
+
     if not args.input:
         parser.print_help(sys.stderr)
         return 1
@@ -98,10 +113,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         output_path = input_path.with_suffix(f".{args.format.lower()}")
 
+    extract_images_arg: Optional[Union[bool, str]] = None
+    if args.extract_images is not None:
+        extract_images_arg = True if args.extract_images == "" else args.extract_images
+
     if args.verbose:
         sys.stderr.write(
             f"[anyconvert] Input: {input_path}, Output: {output_path}, "
-            f"Format: {args.format}, Mode: {args.mode}\n"
+            f"Format: {args.format}, Mode: {args.mode}"
+            + (f", ExtractImages: {args.extract_images or 'images'}" if extract_images_arg else "")
+            + "\n"
         )
 
     try:
@@ -114,6 +135,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_path=output_path,
             mode=args.mode,
             password=args.password,
+            extract_images=extract_images_arg,
         )
 
         if args.verbose:

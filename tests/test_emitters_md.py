@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pathlib
 from typing import List
+import zlib
 
 import pytest
 
@@ -569,3 +570,187 @@ def test_pdf_info_dictionary_frontmatter_e2e() -> None:
     assert '  - "hugo"\n  - "jekyll"\n  - "vitepress"' in md_text
     assert 'date: "2026-11-18T09:30:00Z"' in md_text
     assert "Document body content." in md_text
+
+
+# ==============================================================================
+# 7. Image Extraction Mode (--extract-images) Tests
+# ==============================================================================
+
+def _build_pdf_with_images() -> bytes:
+    """Build a synthetic PDF containing both a DCTDecode JPEG image and FlateDecode PNG image."""
+    # Minimal valid 1x1 JPEG header + EOI bytes
+    jpeg_bytes = (
+        b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+        b"\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00\xff\xd9"
+    )
+    # 1x1 RGB raw pixels compressed with FlateDecode (will be converted to PNG by PDFImage)
+    flate_pixels = zlib.compress(b"\x10\x20\x30")
+
+    content_stream = (
+        b"BT /F1 12 Tf 72 720 Td (Embedded Media Test) Tj ET\n"
+        b"q 100 0 0 100 72 550 cm /Im1 Do Q\n"
+        b"q 80 0 0 80 200 550 cm /Im2 Do Q\n"
+    )
+
+    objs: List[bytes] = [
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        b"2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        (
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Contents 4 0 R /Resources << /Font << /F1 << /Type /Font "
+            b"/Subtype /Type1 /BaseFont /Helvetica >> >> "
+            b"/XObject << /Im1 5 0 R /Im2 6 0 R >> >> >>\nendobj\n"
+        ),
+        (
+            f"4 0 obj\n<< /Length {len(content_stream)} >>\nstream\n".encode("ascii")
+            + content_stream
+            + b"\nendstream\nendobj\n"
+        ),
+        (
+            f"5 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 "
+            f"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode "
+            f"/Length {len(jpeg_bytes)} >>\nstream\n".encode("ascii")
+            + jpeg_bytes
+            + b"\nendstream\nendobj\n"
+        ),
+        (
+            f"6 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 "
+            f"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode "
+            f"/Length {len(flate_pixels)} >>\nstream\n".encode("ascii")
+            + flate_pixels
+            + b"\nendstream\nendobj\n"
+        ),
+    ]
+
+    offsets = [0]
+    out = bytearray(b"%PDF-1.4\n")
+    for obj in objs:
+        offsets.append(len(out))
+        out.extend(obj)
+    xref_offset = len(out)
+    out.extend(f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode("ascii"))
+    for off in offsets[1:]:
+        out.extend(f"{off:010d} 00000 n \n".encode("ascii"))
+    out.extend(
+        f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(out)
+
+
+def test_markdown_emitter_extract_images_to_dir(tmp_path: pathlib.Path) -> None:
+    """Test MarkdownEmitter writing JPEG and PNG assets to image_dir."""
+    jpeg_data = b"\xff\xd8\xff\xe0TESTJPEG\xff\xd9"
+    png_data = b"\x89PNG\r\n\x1a\nTESTPNG"
+
+    img1 = ImageBlock(
+        image_bytes=jpeg_data,
+        bbox=BoundingBox(0, 0, 100, 100),
+        alt_text="Photo",
+        format="png",  # Intentionally mismatched to verify sync_format()
+    )
+    img2 = ImageBlock(
+        image_bytes=png_data,
+        bbox=BoundingBox(0, 120, 100, 220),
+        alt_text="Diagram",
+        format="png",
+    )
+    doc = DocumentIR(pages=[DocumentPage(1, 612.0, 792.0, blocks=[img1, img2])])
+
+    assets_dir = tmp_path / "assets"
+    emitter = MarkdownEmitter(image_dir=assets_dir, image_link_prefix="assets")
+    md_text = emitter.render(doc)
+
+    assert "![Photo](assets/img_1.jpeg)" in md_text
+    assert "![Diagram](assets/img_2.png)" in md_text
+    assert (assets_dir / "img_1.jpeg").read_bytes() == jpeg_data
+    assert (assets_dir / "img_2.png").read_bytes() == png_data
+    assert len(emitter.extracted_images) == 2
+
+
+def test_api_and_cli_extract_images_e2e(tmp_path: pathlib.Path) -> None:
+    """Test end-to-end PDF image extraction via API and CLI --extract-images [DIR]."""
+    pdf_bytes = _build_pdf_with_images()
+    pdf_path = tmp_path / "media.pdf"
+    pdf_path.write_bytes(pdf_bytes)
+
+    # 1. API with explicit custom asset directory
+    out_md_custom = tmp_path / "custom.md"
+    custom_assets = tmp_path / "my_assets"
+    convert(
+        pdf_path,
+        output_format="md",
+        output_path=out_md_custom,
+        extract_images=custom_assets,
+    )
+    custom_text = out_md_custom.read_text(encoding="utf-8")
+    assert "![Im1](my_assets/img_1.jpeg)" in custom_text
+    assert "![Im2](my_assets/img_2.png)" in custom_text
+    assert (custom_assets / "img_1.jpeg").is_file()
+    assert (custom_assets / "img_2.png").is_file()
+    assert (custom_assets / "img_1.jpeg").read_bytes().startswith(b"\xff\xd8\xff")
+    assert (custom_assets / "img_2.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+    # 2. API with extract_images=True (defaults to 'images/' beside output)
+    sub_dir = tmp_path / "sub"
+    sub_dir.mkdir()
+    out_md_default = sub_dir / "article.md"
+    convert(
+        pdf_path,
+        output_format="md",
+        output_path=out_md_default,
+        extract_images=True,
+    )
+    default_text = out_md_default.read_text(encoding="utf-8")
+    assert "![Im1](images/img_1.jpeg)" in default_text
+    assert "![Im2](images/img_2.png)" in default_text
+    assert (sub_dir / "images" / "img_1.jpeg").is_file()
+    assert (sub_dir / "images" / "img_2.png").is_file()
+
+    # 3. CLI: anyconvert input.pdf -f md -o out.md --extract-images ./assets/
+    cli_dir = tmp_path / "cli_run"
+    cli_dir.mkdir()
+    cli_out = cli_dir / "out.md"
+    cli_assets = cli_dir / "assets"
+    exit_code = main([
+        str(pdf_path),
+        "-f",
+        "md",
+        "-o",
+        str(cli_out),
+        "--extract-images",
+        str(cli_assets),
+    ])
+    assert exit_code == 0
+    cli_text = cli_out.read_text(encoding="utf-8")
+    assert "![Im1](assets/img_1.jpeg)" in cli_text
+    assert "![Im2](assets/img_2.png)" in cli_text
+    assert (cli_assets / "img_1.jpeg").is_file()
+    assert (cli_assets / "img_2.png").is_file()
+
+    # 4. CLI without DIR argument (flag before positional input recovery)
+    cli_no_dir_out = cli_dir / "auto" / "doc.md"
+    exit_code_2 = main([
+        "--extract-images",
+        str(pdf_path),
+        "-f",
+        "md",
+        "-o",
+        str(cli_no_dir_out),
+    ])
+    assert exit_code_2 == 0
+    auto_text = cli_no_dir_out.read_text(encoding="utf-8")
+    assert "![Im1](images/img_1.jpeg)" in auto_text
+    assert "![Im2](images/img_2.png)" in auto_text
+    assert (cli_dir / "auto" / "images" / "img_1.jpeg").is_file()
+    assert (cli_dir / "auto" / "images" / "img_2.png").is_file()
+
+    # 5. convert_bytes with extract_images directory
+    bytes_assets = tmp_path / "bytes_assets"
+    bytes_md = convert_bytes(
+        pdf_bytes,
+        output_format="md",
+        extract_images=bytes_assets,
+    ).decode("utf-8")
+    assert "img_1.jpeg)" in bytes_md
+    assert (bytes_assets / "img_1.jpeg").is_file()
+    assert (bytes_assets / "img_2.png").is_file()

@@ -15,6 +15,7 @@ Converts DocumentIR hierarchies into standards-compliant Markdown documents supp
 from __future__ import annotations
 
 from enum import Enum, auto
+import pathlib
 import re
 from typing import List, Optional, Sequence, Union
 
@@ -92,11 +93,20 @@ class MarkdownEmitter(BaseEmitter):
         page_separator: str = "\n\n---\n\n",
         render_headers_footers: bool = True,
         include_frontmatter: bool = True,
+        image_dir: Optional[Union[str, pathlib.Path]] = None,
+        image_link_prefix: Optional[str] = None,
     ) -> None:
         self.dialect = resolve_dialect(dialect)
         self.page_separator = page_separator
         self.render_headers_footers = render_headers_footers
         self.include_frontmatter = include_frontmatter
+        self.image_dir: Optional[pathlib.Path] = (
+            pathlib.Path(image_dir) if image_dir is not None else None
+        )
+        self.image_link_prefix: Optional[str] = (
+            image_link_prefix.rstrip("/") if image_link_prefix is not None else None
+        )
+        self.extracted_images: List[pathlib.Path] = []
 
     def emit(
         self,
@@ -127,6 +137,7 @@ class MarkdownEmitter(BaseEmitter):
         page_num: int = 1,
     ) -> bytes:
         """Serialize a single DocumentPage directly into Markdown bytes."""
+        self.extracted_images = []
         text = self.render_page(page, page_num=page_num, image_counter=[1])
         return text.strip().encode("utf-8")
 
@@ -142,6 +153,7 @@ class MarkdownEmitter(BaseEmitter):
         if not doc_ir.pages:
             raise SerializationError("Cannot emit Markdown from empty DocumentIR")
 
+        self.extracted_images = []
         page_strings: List[str] = []
         image_counter = [1]
 
@@ -479,12 +491,34 @@ class MarkdownEmitter(BaseEmitter):
         return build_delimiter_cells(col_widths, [table_alignment] * num_cols)
 
     def render_image(self, img: ImageBlock, image_counter: List[int]) -> str:
-        """Render ImageBlock into a Markdown image reference."""
+        """Render ImageBlock into a Markdown image reference, optionally extracting to disk."""
         idx = image_counter[0]
         image_counter[0] += 1
-        alt = img.alt_text or f"Image_{idx}"
+        alt = (img.alt_text or f"Image_{idx}").replace("]", "\\]").replace("\n", " ").strip()
+        img.sync_format()
         ext = img.file_extension
-        return f"![{alt}](image_{idx}{ext})"
+
+        if self.image_dir is None:
+            return f"![{alt}](image_{idx}{ext})"
+
+        filename = f"img_{idx}{ext}"
+        if img.image_bytes:
+            self.image_dir.mkdir(parents=True, exist_ok=True)
+            target_file = self.image_dir / filename
+            target_file.write_bytes(img.image_bytes)
+            self.extracted_images.append(target_file)
+
+        if self.image_link_prefix is not None:
+            link_path = (
+                filename
+                if self.image_link_prefix in ("", ".")
+                else f"{self.image_link_prefix}/{filename}"
+            )
+        else:
+            dir_posix = self.image_dir.as_posix().rstrip("/")
+            link_path = filename if dir_posix in ("", ".") else f"{dir_posix}/{filename}"
+
+        return f"![{alt}]({link_path})"
 
 
 __all__ = [
