@@ -12,7 +12,7 @@ class TxtFlowEmitter(MarkdownEmitter):
     """Semantic Flow Plaintext / Markdown emitter generating clean reflowable text."""
 
     def __init__(self) -> None:
-        super().__init__(dialect=MarkdownDialect.GFM)
+        super().__init__(dialect=MarkdownDialect.GFM, include_frontmatter=False)
 
     def _render_block(self, block: BlockNode, image_counter: List[int]) -> str:
         return self.render_block(block, image_counter)

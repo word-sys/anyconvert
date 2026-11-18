@@ -19,6 +19,7 @@ import re
 from typing import List, Optional, Sequence, Union
 
 from anyconvert.emitters.base import BaseEmitter, ConversionMode
+from anyconvert.emitters.md.frontmatter import render_yaml_frontmatter
 from anyconvert.emitters.md.tables import (
     build_delimiter_cells,
     format_table_matrix,
@@ -90,10 +91,12 @@ class MarkdownEmitter(BaseEmitter):
         dialect: Union[MarkdownDialect, str] = MarkdownDialect.GFM,
         page_separator: str = "\n\n---\n\n",
         render_headers_footers: bool = True,
+        include_frontmatter: bool = True,
     ) -> None:
         self.dialect = resolve_dialect(dialect)
         self.page_separator = page_separator
         self.render_headers_footers = render_headers_footers
+        self.include_frontmatter = include_frontmatter
 
     def emit(
         self,
@@ -148,8 +151,16 @@ class MarkdownEmitter(BaseEmitter):
             if page_text:
                 page_strings.append(page_text)
 
-        full_text = self.page_separator.join(page_strings)
-        return full_text.strip() + "\n"
+        frontmatter = ""
+        if self.include_frontmatter and doc_ir.metadata:
+            frontmatter = render_yaml_frontmatter(doc_ir.metadata)
+
+        full_text = self.page_separator.join(page_strings).strip()
+        if frontmatter and full_text:
+            return f"{frontmatter}\n\n{full_text}\n"
+        if frontmatter:
+            return f"{frontmatter}\n"
+        return full_text + "\n"
 
     def render_page(
         self,

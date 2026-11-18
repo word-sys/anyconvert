@@ -7,6 +7,7 @@ and hierarchical page tree traversal with attribute inheritance.
 from __future__ import annotations
 
 import pathlib
+import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from anyconvert.common.reader import ByteReader
@@ -25,11 +26,66 @@ from anyconvert.pdf.parser import (
     PDFHexString,
     PDFIndirectRef,
     PDFName,
+    PDFNull,
     PDFObject,
     PDFStream,
     PDFString,
 )
 from anyconvert.pdf.xref import XRefResolver
+
+
+_PDF_DATE_RE = re.compile(
+    r"^D:(\d{4})"
+    r"(?:(\d{2})"
+    r"(?:(\d{2})"
+    r"(?:(\d{2})"
+    r"(?:(\d{2})"
+    r"(?:(\d{2}))?)?)?)?)?"
+    r"(?:([Z+-])(?:(\d{2})'?(\d{2})?'?)?)?$"
+)
+
+
+def parse_pdf_date(raw_date: str) -> str:
+    """Convert a PDF date string (D:YYYYMMDDHHmmSSOHH'mm') to ISO 8601 when valid."""
+    cleaned = raw_date.strip()
+    if not cleaned:
+        return ""
+    match = _PDF_DATE_RE.match(cleaned)
+    if not match:
+        return cleaned
+
+    year_s, mon_s, day_s, hour_s, min_s, sec_s, tz_sign, tz_h_s, tz_m_s = match.groups()
+    if mon_s is not None and not (1 <= int(mon_s) <= 12):
+        return cleaned
+    if day_s is not None and not (1 <= int(day_s) <= 31):
+        return cleaned
+    if hour_s is not None and not (0 <= int(hour_s) <= 23):
+        return cleaned
+    if min_s is not None and not (0 <= int(min_s) <= 59):
+        return cleaned
+    if sec_s is not None and not (0 <= int(sec_s) <= 59):
+        return cleaned
+
+    date_parts = [year_s]
+    if mon_s is not None:
+        date_parts.append(mon_s)
+        if day_s is not None:
+            date_parts.append(day_s)
+    iso = "-".join(date_parts)
+
+    if hour_s is not None:
+        time_h = hour_s
+        time_m = min_s or "00"
+        time_s = sec_s or "00"
+        iso = f"{iso}T{time_h}:{time_m}:{time_s}"
+        if tz_sign == "Z":
+            iso = f"{iso}Z"
+        elif tz_sign in ("+", "-") and tz_h_s is not None:
+            tz_h = tz_h_s
+            tz_m = tz_m_s or "00"
+            iso = f"{iso}{tz_sign}{tz_h}:{tz_m}"
+
+    return iso
 
 
 class PDFDocument:
@@ -265,16 +321,56 @@ class PDFDocument:
         info_dict = self.info
         if not info_dict:
             return meta
-        for k, v in info_dict.items():
-            key_name = str(k)
+
+        info_ref = self.trailer.get("Info")
+        enclosing_ref: Optional[Tuple[int, int]] = (
+            (info_ref.obj_id, info_ref.generation)
+            if isinstance(info_ref, PDFIndirectRef)
+            else None
+        )
+
+        for k, raw_v in info_dict.items():
+            key_name = str(k).lstrip("/")
+            obj_ref = enclosing_ref
+            v: Any = raw_v
+            if isinstance(raw_v, PDFIndirectRef):
+                obj_ref = (raw_v.obj_id, raw_v.generation)
+                v = self._resolver.dereference(raw_v)
+
+            if v is None or isinstance(v, PDFNull):
+                continue
+
+            val_str = ""
             if isinstance(v, (PDFString, PDFHexString)):
-                meta[key_name] = v.as_text()
+                if self._security_handler is not None and obj_ref is not None:
+                    try:
+                        dec_bytes = self._security_handler.decrypt_data(
+                            v.as_bytes(),
+                            obj_id=obj_ref[0],
+                            gen=obj_ref[1],
+                            is_stream=False,
+                        )
+                        v = PDFString(value=dec_bytes)
+                    except Exception:
+                        pass
+                val_str = v.as_text()
+            elif isinstance(v, PDFName):
+                val_str = v.name
             elif isinstance(v, str):
-                meta[key_name] = v
+                val_str = v
             elif isinstance(v, bytes):
-                meta[key_name] = v.decode("latin-1", errors="replace")
+                val_str = v.decode("latin-1", errors="replace")
             else:
-                meta[key_name] = str(v)
+                val_str = str(v)
+
+            val_str = val_str.strip("\x00").strip()
+            if not val_str:
+                continue
+
+            if key_name in ("CreationDate", "ModDate"):
+                val_str = parse_pdf_date(val_str)
+
+            meta[key_name] = val_str
         return meta
 
     def get_page_content_bytes(self, page_dict: PDFDict) -> bytes:

@@ -18,8 +18,14 @@ from anyconvert.emitters.base import ConversionMode
 from anyconvert.emitters.md import (
     MarkdownDialect,
     MarkdownEmitter,
+    format_yaml_scalar,
+    normalize_frontmatter_metadata,
+    parse_keywords,
+    render_yaml_frontmatter,
     resolve_dialect,
 )
+from anyconvert.emitters.txt import TxtFlowEmitter
+from anyconvert.pdf.document import parse_pdf_date
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
     Alignment,
@@ -451,3 +457,115 @@ def test_cli_markdown_default_output_naming(tmp_path: pathlib.Path) -> None:
     assert expected_output.is_file()
     text = expected_output.read_text(encoding="utf-8")
     assert "Markdown Emitter Integration Test" in text
+
+
+# ==============================================================================
+# 6. Metadata & YAML Frontmatter Tests
+# ==============================================================================
+
+def test_pdf_date_parsing_and_frontmatter_helpers() -> None:
+    """Test PDF date string conversion to ISO 8601 and YAML scalar escaping."""
+    assert parse_pdf_date("D:20261030141205+03'00'") == "2026-10-30T14:12:05+03:00"
+    assert parse_pdf_date("D:20261030141205Z") == "2026-10-30T14:12:05Z"
+    assert parse_pdf_date("D:20261030") == "2026-10-30"
+    assert parse_pdf_date("D:202610") == "2026-10"
+    assert parse_pdf_date("2026-10-29") == "2026-10-29"
+    assert parse_pdf_date("D:20261399") == "D:20261399"  # Invalid month stays intact
+
+    assert format_yaml_scalar('Report: "Q4" & Beyond') == '"Report: \\"Q4\\" & Beyond"'
+    assert format_yaml_scalar("Line1\nLine2") == '"Line1\\nLine2"'
+    assert parse_keywords("pdf, markdown; python, PDF") == ["pdf", "markdown", "python"]
+
+
+def test_yaml_frontmatter_rendering_and_empty_handling() -> None:
+    """Test structured YAML frontmatter output and omission when metadata is empty."""
+    assert render_yaml_frontmatter({}) == ""
+    assert render_yaml_frontmatter({"Title": "   ", "Author": ""}) == ""
+
+    meta = {
+        "Title": "Engine Guide: Part 1",
+        "Author": "Word-Sys Team",
+        "Subject": "Zero-dependency conversion",
+        "Keywords": "pdf, markdown; static-site",
+        "CreationDate": "D:20261118110000+03'00'",
+        "Creator": "anyconvert",
+        "CustomField": "Alpha",
+    }
+    fm = render_yaml_frontmatter(meta)
+    assert fm.startswith("---\n")
+    assert fm.endswith("\n---")
+    assert 'title: "Engine Guide: Part 1"' in fm
+    assert 'author: "Word-Sys Team"' in fm
+    assert 'description: "Zero-dependency conversion"' in fm
+    assert 'keywords:\n  - "pdf"\n  - "markdown"\n  - "static-site"' in fm
+    assert 'date: "2026-11-18T11:00:00+03:00"' in fm
+    assert 'creator: "anyconvert"' in fm
+    assert 'customfield: "Alpha"' in fm
+
+    norm = normalize_frontmatter_metadata(meta)
+    assert list(norm.keys())[:5] == ["title", "author", "description", "keywords", "date"]
+
+
+def test_markdown_emitter_frontmatter_toggle_and_txt_exclusion() -> None:
+    """Verify MarkdownEmitter prepends frontmatter by default and TxtFlowEmitter omits it."""
+    doc = DocumentIR(
+        pages=[DocumentPage(1, 612.0, 792.0, blocks=[Paragraph(runs=[_make_run("Body text.")])])],
+        metadata={"Title": "SSG Article", "Author": "Jane Doe"},
+    )
+
+    md_with_fm = MarkdownEmitter().render(doc)
+    assert md_with_fm.startswith("---\ntitle: \"SSG Article\"\nauthor: \"Jane Doe\"\n---\n\nBody text.")
+
+    md_no_fm = MarkdownEmitter(include_frontmatter=False).render(doc)
+    assert not md_no_fm.startswith("---")
+    assert md_no_fm.strip() == "Body text."
+
+    txt_flow = TxtFlowEmitter().emit(doc).decode("utf-8")
+    assert not txt_flow.startswith("---")
+    assert txt_flow.strip() == "Body text."
+
+
+def test_pdf_info_dictionary_frontmatter_e2e() -> None:
+    """Verify end-to-end PDF /Info extraction (including indirect string refs) to YAML frontmatter."""
+    objs: List[bytes] = [
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        b"2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        (
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Contents 4 0 R /Resources << /Font << /F1 << /Type /Font "
+            b"/Subtype /Type1 /BaseFont /Helvetica >> >> >> >>\nendobj\n"
+        ),
+        (
+            b"4 0 obj\n<< /Length 70 >>\nstream\n"
+            b"BT /F1 12 Tf 72 700 Td (Document body content.) Tj ET\n"
+            b"endstream\nendobj\n"
+        ),
+        (
+            b"5 0 obj\n<< /Title 6 0 R /Author (Alice Writer) "
+            b"/Subject (Documentation: Hugo & Jekyll) "
+            b"/Keywords (hugo, jekyll, vitepress) "
+            b"/CreationDate (D:20261118093000Z) >>\nendobj\n"
+        ),
+        b"6 0 obj\n(Frontmatter E2E Title)\nendobj\n",
+    ]
+    offsets = [0]
+    out = bytearray(b"%PDF-1.4\n")
+    for obj in objs:
+        offsets.append(len(out))
+        out.extend(obj)
+    xref_offset = len(out)
+    out.extend(f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode("ascii"))
+    for off in offsets[1:]:
+        out.extend(f"{off:010d} 00000 n \n".encode("ascii"))
+    out.extend(
+        f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R /Info 5 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii")
+    )
+
+    md_text = convert_bytes(bytes(out), output_format="md").decode("utf-8")
+    assert md_text.startswith("---\n")
+    assert 'title: "Frontmatter E2E Title"' in md_text
+    assert 'author: "Alice Writer"' in md_text
+    assert 'description: "Documentation: Hugo & Jekyll"' in md_text
+    assert '  - "hugo"\n  - "jekyll"\n  - "vitepress"' in md_text
+    assert 'date: "2026-11-18T09:30:00Z"' in md_text
+    assert "Document body content." in md_text

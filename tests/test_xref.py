@@ -277,6 +277,34 @@ class TestPDFDocument(unittest.TestCase):
 
         self.assertIn(b"Page 2 Text", c2)
 
+    def test_info_metadata_extraction_with_indirect_refs_and_dates(self) -> None:
+        """Verify PDFDocument.get_metadata resolves indirect refs, nulls, and PDF dates."""
+        pdf_body = (
+            b"%PDF-1.4\n"
+            b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+            b"2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n"
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n"
+            b"4 0 obj\n<< /Title 5 0 R /Author (Jane\\000) /Empty null /CreationDate (D:20261118120000+03'00') >>\nendobj\n"
+            b"5 0 obj\n(Indirect PDF Title)\nendobj\n"
+        )
+        offs = [pdf_body.find(f"{i} 0 obj".encode("ascii")) for i in range(1, 6)]
+        xref_pos = len(pdf_body)
+        xref_lines = [b"xref\n0 6\n0000000000 65535 f\r\n"]
+        for o in offs:
+            xref_lines.append(f"{o:010d} 00000 n\r\n".encode("ascii"))
+        trailer = (
+            b"".join(xref_lines)
+            + b"trailer\n<< /Size 6 /Root 1 0 R /Info 4 0 R >>\nstartxref\n"
+            + f"{xref_pos}\n".encode("ascii")
+            + b"%%EOF\n"
+        )
+        doc = PDFDocument(pdf_body + trailer)
+        meta = doc.get_metadata()
+        self.assertEqual(meta["Title"], "Indirect PDF Title")
+        self.assertEqual(meta["Author"], "Jane")
+        self.assertNotIn("Empty", meta)
+        self.assertEqual(meta["CreationDate"], "2026-11-18T12:00:00+03:00")
+
 
 if __name__ == "__main__":
     unittest.main()
