@@ -1,11 +1,26 @@
-"""Tests for pure-Python Open Packaging Conventions (OPC) and OpenDocument (ODF) packagers."""
+"""Tests for Open Packaging (OPC), OpenDocument (ODF), and EPUB 3 (OCF) packagers."""
 
 import io
 import pathlib
+import xml.etree.ElementTree as ET
 import zipfile
 import pytest
 
 from anyconvert.exceptions import PackagingError
+from anyconvert.packaging.epub import (
+    CONTAINER_NS,
+    CONTAINER_PART_NAME,
+    DEFAULT_ROOTFILE_PATH,
+    MEDIA_TYPE_CSS,
+    MEDIA_TYPE_OPF,
+    MEDIA_TYPE_PNG,
+    MEDIA_TYPE_XHTML,
+    MIMETYPE_EPUB,
+    EPUBPackage,
+    EPUBPart,
+    infer_epub_media_type,
+    normalize_epub_part_name,
+)
 from anyconvert.packaging.odf import (
     MANIFEST_PART_NAME,
     MEDIA_TYPE_IMAGE_PNG,
@@ -363,3 +378,154 @@ def test_odf_error_conditions() -> None:
         zf.writestr(zinfo, b"application/vnd.oasis.opendocument.text")
     with pytest.raises(PackagingError):
         ODFPackage.parse(buf_no_manifest.getvalue())
+
+
+# ==============================================================================
+# EPUB 3 (OCF 3.3) Container Tests
+# ==============================================================================
+
+def test_epub_part_normalization_and_media_type_inference() -> None:
+    """Test EPUB path normalization, traversal guard, and media type detection."""
+    assert normalize_epub_part_name("/OEBPS\\Text\\chapter_1.xhtml") == "OEBPS/Text/chapter_1.xhtml"
+    assert normalize_epub_part_name("OEBPS/./content.opf") == "OEBPS/content.opf"
+
+    for bad_path in ("", "/", ".", "..", "../secret.txt"):
+        with pytest.raises(PackagingError):
+            normalize_epub_part_name(bad_path)
+
+    assert infer_epub_media_type("OEBPS/content.opf") == MEDIA_TYPE_OPF
+    assert infer_epub_media_type("OEBPS/Text/ch1.xhtml") == MEDIA_TYPE_XHTML
+    assert infer_epub_media_type("OEBPS/Styles/main.css") == MEDIA_TYPE_CSS
+    assert infer_epub_media_type("OEBPS/Images/cover.png") == MEDIA_TYPE_PNG
+
+
+def test_epub_container_byte_offset_zero_and_oebps_structure(tmp_path: pathlib.Path) -> None:
+    """Verify uncompressed mimetype at byte offset 0, container.xml, and OEBPS/ parts."""
+    pkg = EPUBPackage()
+    opf_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<package xmlns="http://www.idpf.org/2007/opf" version="3.0">'
+        "<manifest>"
+        '<item id="ch1" href="Text/chapter_1.xhtml" media-type="application/xhtml+xml"/>'
+        '<item id="css" href="Styles/style.css" media-type="text/css"/>'
+        "</manifest>"
+        "</package>"
+    )
+    pkg.add_oebps_part("content.opf", opf_xml, media_type=MEDIA_TYPE_OPF)
+    pkg.add_oebps_part("Text/chapter_1.xhtml", "<html/>")
+    pkg.add_part("OEBPS/Styles/style.css", "body { margin: 0; }")
+    pkg.add_oebps_part("Images/cover.png", b"\x89PNG\r\n\x1a\nFAKEPNG", media_type=MEDIA_TYPE_PNG)
+
+    assert isinstance(pkg.get_part(DEFAULT_ROOTFILE_PATH), EPUBPart)
+    assert pkg.has_part("OEBPS/Text/chapter_1.xhtml")
+    assert len(pkg.list_parts()) == 4
+
+    epub_bytes = pkg.to_bytes()
+
+    # Exact byte-level EPUB magic header inspection
+    assert epub_bytes.startswith(b"PK\x03\x04")
+    assert epub_bytes[30:38] == b"mimetype"
+    assert epub_bytes[38:58] == b"application/epub+zip"
+
+    with zipfile.ZipFile(io.BytesIO(epub_bytes), "r") as zf:
+        first = zf.filelist[0]
+        assert first.filename == "mimetype"
+        assert first.compress_type == zipfile.ZIP_STORED
+        assert first.header_offset == 0
+        assert len(first.extra) == 0
+        assert zf.read("mimetype") == MIMETYPE_EPUB.encode("ascii")
+
+        names = zf.namelist()
+        assert CONTAINER_PART_NAME in names
+        assert "OEBPS/content.opf" in names
+        assert "OEBPS/Text/chapter_1.xhtml" in names
+        assert "OEBPS/Styles/style.css" in names
+        assert "OEBPS/Images/cover.png" in names
+
+        container_root = ET.fromstring(zf.read(CONTAINER_PART_NAME))
+        assert CONTAINER_NS in container_root.tag
+        rootfiles = list(container_root.iter(f"{{{CONTAINER_NS}}}rootfile"))
+        assert len(rootfiles) == 1
+        assert rootfiles[0].get("full-path") == "OEBPS/content.opf"
+        assert rootfiles[0].get("media-type") == MEDIA_TYPE_OPF
+
+    # Save to disk and parse back cleanly
+    out_epub = tmp_path / "book.epub"
+    pkg.save(out_epub)
+    assert out_epub.is_file()
+
+    parsed = EPUBPackage.parse(out_epub)
+    assert parsed.mimetype == MIMETYPE_EPUB
+    assert parsed.rootfile_path == DEFAULT_ROOTFILE_PATH
+    assert parsed.get_part("OEBPS/Text/chapter_1.xhtml").media_type == MEDIA_TYPE_XHTML
+    assert parsed.get_part("OEBPS/Images/cover.png").content == b"\x89PNG\r\n\x1a\nFAKEPNG"
+
+    parsed.remove_part("OEBPS/Styles/style.css")
+    assert not parsed.has_part("OEBPS/Styles/style.css")
+
+
+def test_epub_container_validation_errors() -> None:
+    """Verify EPUBPackage strictly rejects OCF 3.3 invariant violations."""
+    pkg = EPUBPackage()
+    with pytest.raises(PackagingError):
+        EPUBPackage(mimetype="application/epub+zip\n")
+    with pytest.raises(PackagingError):
+        pkg.add_part("mimetype", "application/epub+zip")
+    with pytest.raises(PackagingError):
+        pkg.add_part("META-INF/container.xml", "<container/>")
+
+    pkg.add_oebps_part("Text/ch1.xhtml", "<html/>")
+    with pytest.raises(PackagingError):
+        pkg.add_oebps_part("Text/ch1.xhtml", "<html/>")
+    with pytest.raises(PackagingError):
+        pkg.get_part("OEBPS/missing.xhtml")
+
+    # Wrong first entry
+    bad_first = io.BytesIO()
+    with zipfile.ZipFile(bad_first, "w") as zf:
+        zf.writestr("OEBPS/content.opf", "<package/>")
+        zf.writestr("mimetype", MIMETYPE_EPUB)
+    with pytest.raises(PackagingError):
+        EPUBPackage.parse(bad_first.getvalue())
+
+    # Compressed mimetype
+    bad_comp = io.BytesIO()
+    with zipfile.ZipFile(bad_comp, "w") as zf:
+        zi = zipfile.ZipInfo("mimetype")
+        zi.compress_type = zipfile.ZIP_DEFLATED
+        zf.writestr(zi, MIMETYPE_EPUB.encode("ascii"))
+        zf.writestr(CONTAINER_PART_NAME, "<container/>")
+    with pytest.raises(PackagingError):
+        EPUBPackage.parse(bad_comp.getvalue())
+
+    # Extra field bytes on mimetype
+    bad_extra = io.BytesIO()
+    with zipfile.ZipFile(bad_extra, "w") as zf:
+        zi = zipfile.ZipInfo("mimetype")
+        zi.compress_type = zipfile.ZIP_STORED
+        zi.extra = b"\x01\x02"
+        zf.writestr(zi, MIMETYPE_EPUB.encode("ascii"))
+        zf.writestr(CONTAINER_PART_NAME, "<container/>")
+    with pytest.raises(PackagingError):
+        EPUBPackage.parse(bad_extra.getvalue())
+
+    # Wrong mimetype text
+    bad_mime = io.BytesIO()
+    with zipfile.ZipFile(bad_mime, "w") as zf:
+        zi = zipfile.ZipInfo("mimetype")
+        zi.compress_type = zipfile.ZIP_STORED
+        zi.extra = b""
+        zf.writestr(zi, b"text/plain")
+        zf.writestr(CONTAINER_PART_NAME, "<container/>")
+    with pytest.raises(PackagingError):
+        EPUBPackage.parse(bad_mime.getvalue())
+
+    # Missing META-INF/container.xml
+    no_container = io.BytesIO()
+    with zipfile.ZipFile(no_container, "w") as zf:
+        zi = zipfile.ZipInfo("mimetype")
+        zi.compress_type = zipfile.ZIP_STORED
+        zi.extra = b""
+        zf.writestr(zi, MIMETYPE_EPUB.encode("ascii"))
+    with pytest.raises(PackagingError):
+        EPUBPackage.parse(no_container.getvalue())

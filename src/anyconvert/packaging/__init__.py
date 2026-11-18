@@ -1,10 +1,29 @@
-"""Pure-Python Open Packaging Conventions (OPC) and OpenDocument (ODF) container packagers.
+"""Open Packaging Conventions (OPC), OpenDocument (ODF), and EPUB 3 (OCF) container packagers.
 
-Provides serialization-agnostic ZIP container engines for DOCX, PPTX, ODT, and ODP
-documents adhering to ISO/IEC 29500-2 and ISO/IEC 26300 standards with zero dependencies.
+Provides serialization-agnostic ZIP container engines for DOCX, PPTX, ODT, ODP,
+and EPUB 3 documents adhering to ISO/IEC 29500-2, ISO/IEC 26300, and W3C EPUB 3.3 standards.
 """
 
 from __future__ import annotations
+
+from anyconvert.packaging.epub import (
+    CONTAINER_NS,
+    CONTAINER_PART_NAME,
+    CONTAINER_VERSION,
+    DEFAULT_ROOTFILE_PATH,
+    MEDIA_TYPE_CSS,
+    MEDIA_TYPE_NCX,
+    MEDIA_TYPE_OPF,
+    MEDIA_TYPE_WOFF2,
+    MEDIA_TYPE_XHTML,
+    MEDIA_TYPE_XML,
+    MIMETYPE_EPUB,
+    OEBPS_DIR,
+    EPUBPackage,
+    EPUBPart,
+    infer_epub_media_type,
+    normalize_epub_part_name,
+)
 
 from anyconvert.packaging.odf import (
     MANIFEST_NS,
@@ -140,4 +159,21 @@ __all__ = [
     "normalize_odf_part_name",
     "ODFPart",
     "ODFPackage",
+    # EPUB
+    "CONTAINER_PART_NAME",
+    "OEBPS_DIR",
+    "DEFAULT_ROOTFILE_PATH",
+    "CONTAINER_NS",
+    "CONTAINER_VERSION",
+    "MIMETYPE_EPUB",
+    "MEDIA_TYPE_OPF",
+    "MEDIA_TYPE_XHTML",
+    "MEDIA_TYPE_CSS",
+    "MEDIA_TYPE_NCX",
+    "MEDIA_TYPE_WOFF2",
+    "MEDIA_TYPE_XML",
+    "normalize_epub_part_name",
+    "infer_epub_media_type",
+    "EPUBPart",
+    "EPUBPackage",
 ]
