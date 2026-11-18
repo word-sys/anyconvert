@@ -17,11 +17,13 @@ class TxtEmitter(BaseEmitter):
         self,
         char_width_pt: float = 6.0,
         line_height_pt: float = 12.0,
+        unicode_boxes: bool = True,
     ) -> None:
         self.flow_emitter = TxtFlowEmitter()
         self.canvas_emitter = TxtCanvasEmitter(
             char_width_pt=char_width_pt,
             line_height_pt=line_height_pt,
+            unicode_boxes=unicode_boxes,
         )
 
     def emit(

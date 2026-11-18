@@ -24,6 +24,7 @@ from anyconvert.ir.model import (
     TableCell,
     TableRow,
     TextRun,
+    VectorBlock,
 )
 
 
@@ -170,12 +171,93 @@ def test_txt_canvas_emitter_grid_placement() -> None:
     emitter = TxtCanvasEmitter(char_width_pt=6.0, line_height_pt=12.0)
     text = emitter.emit(doc_ir).decode("utf-8")
 
-    lines = text.split("\n")
-    # Row 2 should contain "Spatial Title" starting around column 10
     assert "Spatial Title" in text
-    assert "+" in text  # Table corners
-    assert "|" in text  # Table borders
+    assert "┌" in text and "┐" in text and "└" in text and "┘" in text
+    assert "┬" in text and "┴" in text
+    assert "─" in text and "│" in text
+    assert "Cell1" in text and "Cell2" in text
     assert "[ Plot ]" in text  # Image placeholder
+
+    # Verify optional ASCII fallback mode
+    ascii_emitter = TxtCanvasEmitter(char_width_pt=6.0, line_height_pt=12.0, unicode_boxes=False)
+    ascii_text = ascii_emitter.emit(doc_ir).decode("utf-8")
+    assert "+" in ascii_text
+    assert "-" in ascii_text
+    assert "|" in ascii_text
+    assert "[ Plot ]" in ascii_text
+
+
+def test_txt_canvas_unicode_table_dividers_and_colspan() -> None:
+    """Test Unicode T-junctions, row dividers, and col_span inside canvas tables."""
+    hdr = TableCell(
+        content=[Paragraph(runs=[TextRun("Quarterly Metrics", "H", 10.0, Color.black())])],
+        col_span=2,
+        width=180.0,
+    )
+    r_hdr = TableRow(cells=[hdr], is_header=True)
+
+    c1 = TableCell(content=[Paragraph(runs=[TextRun("Revenue", "H", 10.0, Color.black())])], width=90.0)
+    c2 = TableCell(content=[Paragraph(runs=[TextRun("$4.2B", "H", 10.0, Color.black())])], width=90.0)
+    r_data1 = TableRow(cells=[c1, c2])
+
+    c3 = TableCell(content=[Paragraph(runs=[TextRun("Margin", "H", 10.0, Color.black())])], width=90.0)
+    c4 = TableCell(content=[Paragraph(runs=[TextRun("28%", "H", 10.0, Color.black())])], width=90.0)
+    r_data2 = TableRow(cells=[c3, c4])
+
+    tbl = Table(
+        rows=[r_hdr, r_data1, r_data2],
+        col_widths=[90.0, 90.0],
+        bbox=BoundingBox(12.0, 12.0, 210.0, 108.0),
+    )
+    page = DocumentPage(page_number=1, width=300.0, height=200.0, blocks=[tbl])
+    text = (
+        TxtCanvasEmitter(char_width_pt=6.0, line_height_pt=12.0)
+        .emit(DocumentIR(pages=[page]))
+        .decode("utf-8")
+    )
+
+    assert "Quarterly Metrics" in text
+    assert "Revenue" in text and "$4.2B" in text
+    assert "Margin" in text and "28%" in text
+    assert "├" in text and "┤" in text
+    assert "┬" in text and "┴" in text
+    assert "┼" in text
+
+
+def test_txt_canvas_vector_lines_boxes_and_diagonals() -> None:
+    """Test VectorBlock horizontal/vertical junctions, SVG rectangles, and diagonal strokes."""
+    # Intersecting horizontal and vertical vector lines creating a cross (+)
+    h_line = VectorBlock(
+        svg_path="M 30 60 L 150 60",
+        bbox=BoundingBox(30.0, 60.0, 150.0, 61.0),
+    )
+    v_line = VectorBlock(
+        svg_path="M 90 24 L 90 96",
+        bbox=BoundingBox(90.0, 24.0, 91.0, 96.0),
+    )
+    # Closed SVG rectangle
+    rect_vec = VectorBlock(
+        svg_path="M 180 24 L 270 24 L 270 72 L 180 72 Z",
+        bbox=BoundingBox(180.0, 24.0, 270.0, 72.0),
+    )
+    # Diagonal slash line
+    diag_vec = VectorBlock(
+        svg_path="M 30 120 L 78 168",
+        bbox=BoundingBox(30.0, 120.0, 78.0, 168.0),
+    )
+    page = DocumentPage(
+        page_number=1,
+        width=360.0,
+        height=240.0,
+        blocks=[h_line, v_line, rect_vec, diag_vec],
+    )
+    text = TxtCanvasEmitter(char_width_pt=6.0, line_height_pt=12.0).emit(DocumentIR(pages=[page])).decode("utf-8")
+
+    assert "─" in text
+    assert "│" in text
+    assert "┼" in text  # Intersection of h_line and v_line
+    assert "┌" in text and "┐" in text and "└" in text and "┘" in text  # Closed rect_vec
+    assert "\\" in text  # Top-down positive slope diagonal line
 
 
 def test_txt_canvas_emitter_multi_page() -> None:
