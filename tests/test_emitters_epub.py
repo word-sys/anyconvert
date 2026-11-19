@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import io
 import pathlib
+import posixpath
 import re
-from typing import List
+from typing import Dict, List, Set
 import xml.etree.ElementTree as ET
+import zipfile
 
 import pytest
 
-from anyconvert.api import SUPPORTED_FORMATS, convert
+from anyconvert.api import SUPPORTED_FORMATS, convert, convert_bytes
 from anyconvert.cli import main
 from anyconvert.common.color import Color
 from anyconvert.common.geometry import BoundingBox
@@ -57,12 +60,16 @@ from anyconvert.ir.model import (
     VectorBlock,
 )
 from anyconvert.packaging.epub import (
+    CONTAINER_NS,
+    CONTAINER_PART_NAME,
     MEDIA_TYPE_CSS,
     MEDIA_TYPE_JPEG,
     MEDIA_TYPE_NCX,
     MEDIA_TYPE_OPF,
     MEDIA_TYPE_PNG,
+    MEDIA_TYPE_WEBP,
     MEDIA_TYPE_XHTML,
+    MIMETYPE_EPUB,
     EPUBPackage,
 )
 
@@ -634,3 +641,392 @@ def test_epub_emitter_full_multichapter_book_with_rich_blocks(tmp_path: pathlib.
     assert cli_epub.is_file()
     assert EPUBPackage.parse(cli_epub).has_part("OEBPS/Text/chapter_1.xhtml")
     assert isinstance(ChapterRenderer(), ChapterRenderer)
+
+
+# ==============================================================================
+# EPUBCheck 5 / W3C EPUB 3.3 Full Compliance Validator & Edge-Case Suite
+# ==============================================================================
+
+
+def _resolve_zip_relpath(base_file: str, rel_href: str) -> str:
+    """Resolve a relative URI reference from base_file inside a ZIP container."""
+    base_dir = posixpath.dirname(base_file)
+    joined = posixpath.join(base_dir, rel_href) if base_dir else rel_href
+    return posixpath.normpath(joined).lstrip("/")
+
+
+def _collect_xml_ids(root: ET.Element) -> Set[str]:
+    """Collect all id attribute values defined in an XHTML document."""
+    ids: Set[str] = set()
+    for elem in root.iter():
+        elem_id = elem.get("id")
+        if elem_id:
+            ids.add(elem_id)
+    return ids
+
+
+def assert_epubcheck_compliant(epub_bytes: bytes) -> None:
+    """Validate an EPUB 3.3 byte payload against strict OCF, OPF, Nav, NCX, and XHTML rules."""
+    # 1. Byte-level OCF magic header and uncompressed mimetype at byte 0
+    assert epub_bytes.startswith(b"PK\x03\x04")
+    assert epub_bytes[30:38] == b"mimetype"
+    assert epub_bytes[38:58] == MIMETYPE_EPUB.encode("ascii")
+
+    with zipfile.ZipFile(io.BytesIO(epub_bytes), "r") as zf:
+        infos = zf.infolist()
+        assert len(infos) >= 3
+
+        # Entry 0: uncompressed mimetype, zero extra bytes, no data descriptor
+        mime_info = infos[0]
+        assert mime_info.filename == "mimetype"
+        assert mime_info.compress_type == zipfile.ZIP_STORED
+        assert mime_info.header_offset == 0
+        assert len(mime_info.extra) == 0
+        assert (mime_info.flag_bits & 0x08) == 0
+        assert zf.read("mimetype") == MIMETYPE_EPUB.encode("ascii")
+
+        # All entries have clean POSIX paths and no duplicates
+        names = [zi.filename for zi in infos]
+        assert len(names) == len(set(names))
+        for name in names:
+            assert "\\" not in name
+            assert not name.startswith("/")
+            assert ".." not in name.split("/")
+        for zi in infos[1:]:
+            assert zi.compress_type in (zipfile.ZIP_DEFLATED, zipfile.ZIP_STORED)
+
+        name_set = set(names)
+        assert CONTAINER_PART_NAME in name_set
+
+        # 2. META-INF/container.xml validation
+        container_root = ET.fromstring(zf.read(CONTAINER_PART_NAME))
+        assert container_root.tag == f"{{{CONTAINER_NS}}}container"
+        assert container_root.get("version") == "1.0"
+        rootfiles = list(container_root.iter(f"{{{CONTAINER_NS}}}rootfile"))
+        assert len(rootfiles) == 1
+        opf_path = rootfiles[0].get("full-path", "")
+        assert rootfiles[0].get("media-type") == MEDIA_TYPE_OPF
+        assert opf_path in name_set
+
+        # 3. OPF 3.0 validation
+        opf_root = ET.fromstring(zf.read(opf_path))
+        assert opf_root.tag == f"{{{OPF_NS}}}package"
+        assert opf_root.get("version") == "3.0"
+        uid_attr = opf_root.get("unique-identifier")
+        assert uid_attr
+
+        meta_el = opf_root.find(f"{{{OPF_NS}}}metadata")
+        assert meta_el is not None
+        dc_ids = meta_el.findall(f"{{{DC_NS}}}identifier")
+        matching_uid = [el for el in dc_ids if el.get("id") == uid_attr]
+        assert len(matching_uid) == 1 and matching_uid[0].text
+        pub_uid = matching_uid[0].text.strip()
+
+        dc_title = meta_el.find(f"{{{DC_NS}}}title")
+        assert dc_title is not None and (dc_title.text or "").strip()
+        dc_lang = meta_el.find(f"{{{DC_NS}}}language")
+        assert dc_lang is not None and (dc_lang.text or "").strip()
+        mod_metas = [
+            el for el in meta_el.findall(f"{{{OPF_NS}}}meta")
+            if el.get("property") == "dcterms:modified"
+        ]
+        assert len(mod_metas) == 1
+        assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", mod_metas[0].text or "")
+
+        # 4. Bidirectional Manifest Integrity
+        manifest_el = opf_root.find(f"{{{OPF_NS}}}manifest")
+        assert manifest_el is not None
+        manifest_by_id: Dict[str, ET.Element] = {}
+        manifest_zip_paths: Set[str] = set()
+        nav_items: List[ET.Element] = []
+
+        for item in manifest_el.findall(f"{{{OPF_NS}}}item"):
+            item_id = item.get("id", "")
+            href = item.get("href", "")
+            mtype = item.get("media-type", "")
+            assert item_id and item_id not in manifest_by_id
+            assert href and mtype
+            full_zip_path = _resolve_zip_relpath(opf_path, href)
+            assert full_zip_path in name_set, f"Manifest href missing from ZIP: {full_zip_path}"
+            manifest_by_id[item_id] = item
+            manifest_zip_paths.add(full_zip_path)
+            props = (item.get("properties") or "").split()
+            if "nav" in props:
+                nav_items.append(item)
+
+        # Every file in OEBPS/ (except content.opf) must be declared in manifest
+        opf_dir = posixpath.dirname(opf_path)
+        for name in names:
+            if name in ("mimetype", CONTAINER_PART_NAME, opf_path) or name.endswith("/"):
+                continue
+            if not opf_dir or name.startswith(f"{opf_dir}/"):
+                assert name in manifest_zip_paths, f"Unreferenced asset in ZIP: {name}"
+
+        assert len(nav_items) == 1
+        assert nav_items[0].get("media-type") == MEDIA_TYPE_XHTML
+        nav_zip_path = _resolve_zip_relpath(opf_path, nav_items[0].get("href", ""))
+
+        # 5. Spine referential integrity
+        spine_el = opf_root.find(f"{{{OPF_NS}}}spine")
+        assert spine_el is not None
+        itemrefs = spine_el.findall(f"{{{OPF_NS}}}itemref")
+        assert len(itemrefs) >= 1
+        for iref in itemrefs:
+            idref = iref.get("idref", "")
+            assert idref in manifest_by_id
+            assert manifest_by_id[idref].get("media-type") == MEDIA_TYPE_XHTML
+
+        # 6. XHTML parsing + relative asset & SVG property verification
+        parsed_xhtml_ids: Dict[str, Set[str]] = {}
+        for item_id, item in manifest_by_id.items():
+            if item.get("media-type") != MEDIA_TYPE_XHTML:
+                continue
+            zip_path = _resolve_zip_relpath(opf_path, item.get("href", ""))
+            xroot = ET.fromstring(zf.read(zip_path))
+            assert xroot.tag == f"{{{XHTML_NS}}}html"
+            parsed_xhtml_ids[zip_path] = _collect_xml_ids(xroot)
+
+            for link_el in xroot.findall(f".//{{{XHTML_NS}}}link"):
+                lhref = link_el.get("href", "")
+                if lhref and not lhref.startswith(("http://", "https://")):
+                    target = _resolve_zip_relpath(zip_path, lhref)
+                    assert target in manifest_zip_paths
+
+            for img_el in xroot.findall(f".//{{{XHTML_NS}}}img"):
+                src = img_el.get("src", "")
+                assert src and img_el.get("alt") is not None
+                target = _resolve_zip_relpath(zip_path, src)
+                assert target in manifest_zip_paths
+
+            has_inline_svg = any(el.tag.endswith("}svg") or el.tag == "svg" for el in xroot.iter())
+            if has_inline_svg:
+                props = (item.get("properties") or "").split()
+                assert "svg" in props, f"XHTML {zip_path} contains <svg> without properties='svg'"
+
+        # 7. Navigation document link + fragment anchor integrity
+        nav_root = ET.fromstring(zf.read(nav_zip_path))
+        toc_nav = next(
+            (
+                n
+                for n in nav_root.findall(f".//{{{XHTML_NS}}}nav")
+                if n.get(f"{{{EPUB_OPS_NS}}}type") == "toc"
+            ),
+            None,
+        )
+        assert toc_nav is not None
+        toc_links = toc_nav.findall(f".//{{{XHTML_NS}}}a")
+        assert len(toc_links) >= 1
+        for anchor in toc_links:
+            ahref = anchor.get("href", "")
+            assert ahref and (anchor.text or "").strip()
+            path_part, _, frag = ahref.partition("#")
+            target = _resolve_zip_relpath(nav_zip_path, path_part) if path_part else nav_zip_path
+            assert target in parsed_xhtml_ids
+            if frag:
+                assert frag in parsed_xhtml_ids[target], f"Broken TOC anchor #{frag} in {target}"
+
+        # 8. Optional NCX validation
+        toc_attr = spine_el.get("toc")
+        if toc_attr:
+            assert toc_attr in manifest_by_id
+            ncx_item = manifest_by_id[toc_attr]
+            assert ncx_item.get("media-type") == MEDIA_TYPE_NCX
+            ncx_zip_path = _resolve_zip_relpath(opf_path, ncx_item.get("href", ""))
+            ncx_root = ET.fromstring(zf.read(ncx_zip_path))
+            ncx_metas = {
+                el.get("name"): el.get("content")
+                for el in ncx_root.findall(f".//{{{NCX_NS}}}head/{{{NCX_NS}}}meta")
+            }
+            assert ncx_metas.get("dtb:uid") == pub_uid
+            nav_points = list(ncx_root.iter(f"{{{NCX_NS}}}navPoint"))
+            assert len(nav_points) >= 1
+            for expected_order, np in enumerate(nav_points, start=1):
+                assert np.get("playOrder") == str(expected_order)
+                content_el = np.find(f"{{{NCX_NS}}}content")
+                assert content_el is not None
+                csrc = content_el.get("src", "")
+                cpath, _, cfrag = csrc.partition("#")
+                target = _resolve_zip_relpath(ncx_zip_path, cpath)
+                assert target in parsed_xhtml_ids
+                if cfrag:
+                    assert cfrag in parsed_xhtml_ids[target]
+
+
+def test_epubcheck_compliance_rich_inline_tables_images_and_options() -> None:
+    """Validate EPUBCheck compliance across rich inline styles, multi-format images, spans, and emitter options."""
+    black = Color.black()
+    red = Color(200, 20, 20)
+
+    rich_para = Paragraph(
+        runs=[
+            TextRun("Line1\nLine2 ", "Helvetica", 12.0, black),
+            TextRun("Italic", "Helvetica", 12.0, black, is_italic=True),
+            TextRun("Under", "Helvetica", 12.0, black, is_underline=True),
+            TextRun("Strike", "Helvetica", 12.0, red, is_strikethrough=True),
+            TextRun("2", "Helvetica", 9.0, black, baseline_offset=3.0),
+            TextRun("x", "Helvetica", 9.0, black, baseline_offset=-3.0),
+            TextRun("https://example.org/docs", "Helvetica", 12.0, black),
+        ],
+        alignment=Alignment.CENTER,
+    )
+    ordered_1 = Paragraph(runs=[TextRun("1. First step", "Helvetica", 12.0, black)])
+    ordered_2 = Paragraph(runs=[TextRun("2. Second step", "Helvetica", 12.0, black)])
+    bullet_text = Paragraph(runs=[TextRun("• Bullet via text", "Helvetica", 12.0, black)])
+
+    spanned_table = Table(
+        rows=[
+            TableRow(
+                cells=[
+                    TableCell(
+                        content=[Paragraph(runs=[TextRun("Merged Title", "H", 10.0, black)])],
+                        col_span=2,
+                    )
+                ],
+                is_header=True,
+            ),
+            TableRow(
+                cells=[
+                    TableCell(
+                        content=[
+                            Paragraph(runs=[TextRun("Para A", "H", 10.0, black)]),
+                            Paragraph(runs=[TextRun("Para B", "H", 10.0, black)]),
+                        ],
+                        row_span=2,
+                    ),
+                    TableCell(content=[]),
+                ]
+            ),
+            TableRow(cells=[TableCell(content=[Paragraph(runs=[TextRun("Row 3", "H", 10.0, black)])])]),
+        ]
+    )
+
+    img_jpeg = ImageBlock(
+        image_bytes=b"\xff\xd8\xff\xe0\x00\x10JFIF\xff\xd9",
+        bbox=BoundingBox(0, 0, 80, 60),
+        alt_text="",
+        format="jpeg",
+    )
+    img_webp = ImageBlock(
+        image_bytes=b"RIFF\x18\x00\x00\x00WEBPVP8 \x0c\x00\x00\x00",
+        bbox=BoundingBox(0, 0, 80, 60),
+        alt_text="WebP Asset",
+        format="webp",
+    )
+
+    page1 = DocumentPage(
+        1,
+        612.0,
+        792.0,
+        blocks=[
+            Paragraph(runs=[TextRun("Part 1 & Intro", "H", 20.0, black)], heading_level=HeadingLevel.H1),
+            Paragraph(runs=[TextRun("   ", "H", 12.0, black)]),  # Empty paragraph skipped
+            rich_para,
+            ordered_1,
+            ordered_2,
+            bullet_text,
+            spanned_table,
+            Table(rows=[]),  # Empty table skipped
+        ],
+    )
+    page2 = DocumentPage(
+        2,
+        612.0,
+        792.0,
+        blocks=[
+            Paragraph(runs=[TextRun("Part 2: Media", "H", 20.0, black)], heading_level=HeadingLevel.H1),
+            Paragraph(runs=[TextRun("Subsection 2.1", "H", 16.0, black)], heading_level=HeadingLevel.H2),
+            Paragraph(runs=[TextRun("Detail 2.1.1", "H", 14.0, black)], heading_level=HeadingLevel.H3),
+            img_jpeg,
+            img_webp,
+            Paragraph(runs=[TextRun("Right aligned note", "H", 11.0, black)], alignment=Alignment.RIGHT),
+        ],
+    )
+    doc = DocumentIR(
+        pages=[page1, page2],
+        metadata={"Title": "Compliance Book", "Author": "QA Suite", "Keywords": "epub3, compliance"},
+    )
+
+    # 1. Default EPUB 3.3 with NCX
+    epub_full = EpubEmitter().emit(doc)
+    assert_epubcheck_compliant(epub_full)
+
+    parsed = EPUBPackage.parse(epub_full)
+    ch1_text = parsed.get_part("OEBPS/Text/chapter_1.xhtml").content.decode("utf-8")
+    assert "<em>Italic</em>" in ch1_text
+    assert "<u>Under</u>" in ch1_text
+    assert "<s>Strike</s>" in ch1_text
+    assert "<sup>2</sup>" in ch1_text
+    assert "<sub>x</sub>" in ch1_text
+    assert '<a href="https://example.org/docs">' in ch1_text
+    assert "<ol>" in ch1_text and "<ul>" in ch1_text
+    assert 'colspan="2"' in ch1_text and 'rowspan="2"' in ch1_text
+    assert parsed.get_part("OEBPS/Images/img_1.jpeg").media_type == MEDIA_TYPE_JPEG
+    assert parsed.get_part("OEBPS/Images/img_2.webp").media_type == MEDIA_TYPE_WEBP
+
+    # 2. EPUB 3.3 without NCX + custom CSS + page splitting
+    epub_no_ncx = EpubEmitter(
+        include_ncx=False,
+        split_strategy="page",
+        custom_css="body { font-size: 1.1em; }\n",
+    ).emit(doc)
+    assert_epubcheck_compliant(epub_no_ncx)
+    parsed_no_ncx = EPUBPackage.parse(epub_no_ncx)
+    assert not parsed_no_ncx.has_part("OEBPS/toc.ncx")
+    assert b"font-size: 1.1em;" in parsed_no_ncx.get_part("OEBPS/Styles/style.css").content
+
+    # 3. Heading strategy with max_pages_per_chapter=1 and blank page fallback
+    blank_doc = DocumentIR(
+        pages=[DocumentPage(1, 612.0, 792.0, blocks=[]), DocumentPage(2, 612.0, 792.0, blocks=[])],
+        metadata={"Title": "Blank Pages"},
+    )
+    epub_blank = EpubEmitter(split_strategy="heading", max_pages_per_chapter=1).emit(blank_doc)
+    assert_epubcheck_compliant(epub_blank)
+
+
+def test_epubcheck_compliance_end_to_end_pdf_bytes() -> None:
+    """Verify full PDF -> DocumentIR -> EPUB 3.3 conversion passes EPUBCheck validator."""
+    objs: List[bytes] = [
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        b"2 0 obj\n<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>\nendobj\n",
+        (
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Contents 5 0 R /Resources << /Font << /F1 << /Type /Font "
+            b"/Subtype /Type1 /BaseFont /Helvetica >> >> >> >>\nendobj\n"
+        ),
+        (
+            b"4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Contents 6 0 R /Resources << /Font << /F1 << /Type /Font "
+            b"/Subtype /Type1 /BaseFont /Helvetica >> >> >> >>\nendobj\n"
+        ),
+        (
+            b"5 0 obj\n<< /Length 130 >>\nstream\n"
+            b"BT /F1 20 Tf 72 720 Td (Chapter One Title) Tj ET\n"
+            b"BT /F1 12 Tf 72 680 Td (First chapter paragraph content.) Tj ET\n"
+            b"endstream\nendobj\n"
+        ),
+        (
+            b"6 0 obj\n<< /Length 135 >>\nstream\n"
+            b"BT /F1 20 Tf 72 720 Td (Chapter Two Title) Tj ET\n"
+            b"BT /F1 12 Tf 72 680 Td (Second chapter paragraph content.) Tj ET\n"
+            b"endstream\nendobj\n"
+        ),
+        (
+            b"7 0 obj\n<< /Title (Synthetic Multi-Page Book) /Author (Test Author) "
+            b"/CreationDate (D:20261119120000Z) >>\nendobj\n"
+        ),
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offs = [0]
+    for obj in objs:
+        offs.append(len(out))
+        out.extend(obj)
+    xref_pos = len(out)
+    out.extend(f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode("ascii"))
+    for o in offs[1:]:
+        out.extend(f"{o:010d} 00000 n \n".encode("ascii"))
+    out.extend(
+        f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R /Info 7 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode("ascii")
+    )
+
+    epub_bytes = convert_bytes(bytes(out), output_format="epub")
+    assert_epubcheck_compliant(epub_bytes)
