@@ -3,10 +3,24 @@
 from __future__ import annotations
 
 import re
+from typing import List
 import xml.etree.ElementTree as ET
 
 import pytest
 
+from anyconvert.common.color import Color
+from anyconvert.emitters.epub.nav import (
+    EPUB_OPS_NS,
+    NCX_NS,
+    XHTML_NS,
+    NavigationBuilder,
+    TocEntry,
+    build_toc_tree,
+    compute_toc_depth,
+    extract_toc_entries_from_ir,
+    generate_nav_xhtml,
+    generate_toc_ncx,
+)
 from anyconvert.emitters.epub.opf import (
     DC_NS,
     OPF_NS,
@@ -17,6 +31,14 @@ from anyconvert.emitters.epub.opf import (
     sanitize_manifest_id,
 )
 from anyconvert.exceptions import PackagingError, SerializationError
+from anyconvert.ir.model import (
+    BlockNode,
+    DocumentIR,
+    DocumentPage,
+    HeadingLevel,
+    Paragraph,
+    TextRun,
+)
 from anyconvert.packaging.epub import (
     MEDIA_TYPE_CSS,
     MEDIA_TYPE_JPEG,
@@ -220,3 +242,174 @@ def test_opf_validation_errors() -> None:
     # Strict nav requirement fails when no nav item is registered
     with pytest.raises(SerializationError):
         opf.to_xml(require_nav=True)
+
+
+# ==============================================================================
+# Navigation Document (nav.xhtml & toc.ncx) Tests
+# ==============================================================================
+
+
+def test_toc_tree_hierarchy_and_ir_extraction() -> None:
+    """Verify H1-H3 TOC tree nesting, skipped levels, and DocumentIR heading extraction."""
+    flat = [
+        TocEntry("Part I", "Text/ch1.xhtml", level=1),
+        TocEntry("Section 1.1", "Text/ch1.xhtml#s1", level=2),
+        TocEntry("Detail 1.1.1", "Text/ch1.xhtml#s1-1", level=3),
+        TocEntry("Section 1.2", "Text/ch1.xhtml#s2", level=2),
+        TocEntry("Part II", "Text/ch2.xhtml", level=1),
+        TocEntry("Skipped H2 Detail", "Text/ch2.xhtml#s2-1", level=3),
+    ]
+    tree = build_toc_tree(flat)
+    assert len(tree) == 2
+    assert tree[0].title == "Part I"
+    assert len(tree[0].children) == 2
+    assert tree[0].children[0].children[0].title == "Detail 1.1.1"
+    assert tree[1].children[0].title == "Skipped H2 Detail"
+    assert compute_toc_depth(tree) == 3
+
+    # Leading H2 before any H1 stays valid at root
+    leading_h2 = build_toc_tree([TocEntry("Preface", "Text/ch1.xhtml#p", level=2)])
+    assert len(leading_h2) == 1
+    assert leading_h2[0].title == "Preface"
+
+    # Extract only H1-H3 from DocumentIR (ignoring H4 and body paragraphs)
+    black = Color.black()
+    blocks: List[BlockNode] = [
+        Paragraph(runs=[TextRun("Chapter 1", "Helvetica", 20.0, black)], heading_level=HeadingLevel.H1),
+        Paragraph(runs=[TextRun("Body prose.", "Helvetica", 12.0, black)]),
+        Paragraph(runs=[TextRun("Section A", "Helvetica", 16.0, black)], heading_level=HeadingLevel.H2),
+        Paragraph(runs=[TextRun("Subsection A.1", "Helvetica", 14.0, black)], heading_level=HeadingLevel.H3),
+        Paragraph(runs=[TextRun("Minor Note", "Helvetica", 12.0, black)], heading_level=HeadingLevel.H4),
+    ]
+    doc = DocumentIR(pages=[DocumentPage(1, 612.0, 792.0, blocks=blocks)])
+    ir_tree = extract_toc_entries_from_ir(doc, default_href="Text/chapter_1.xhtml")
+    assert len(ir_tree) == 1
+    assert ir_tree[0].title == "Chapter 1"
+    assert ir_tree[0].href == "Text/chapter_1.xhtml#heading-1"
+    assert len(ir_tree[0].children) == 1
+    assert ir_tree[0].children[0].children[0].title == "Subsection A.1"
+    assert compute_toc_depth(ir_tree) == 3
+
+
+def test_generate_nav_xhtml_structure_and_fallback() -> None:
+    """Verify EPUB 3.3 nav.xhtml XML namespaces, nested <ol>, landmarks, and empty fallback."""
+    tree = build_toc_tree(
+        [
+            TocEntry("Intro & Setup", "Text/ch1.xhtml", level=1),
+            TocEntry("Install <Linux>", "Text/ch1.xhtml#install", level=2),
+            TocEntry("Usage", "Text/ch2.xhtml", level=1),
+        ]
+    )
+    nav_bytes = generate_nav_xhtml(
+        entries=tree,
+        title="Contents",
+        language="en-US",
+        stylesheet_href="OEBPS/Styles/style.css",
+    )
+    root = ET.fromstring(nav_bytes)
+    assert root.tag == f"{{{XHTML_NS}}}html"
+
+    link = root.find(f".//{{{XHTML_NS}}}link")
+    assert link is not None and link.get("href") == "Styles/style.css"
+
+    navs = root.findall(f".//{{{XHTML_NS}}}nav")
+    toc_nav = next(
+        (n for n in navs if n.get(f"{{{EPUB_OPS_NS}}}type") == "toc"),
+        None,
+    )
+    assert toc_nav is not None
+    anchors = [a.text for a in toc_nav.findall(f".//{{{XHTML_NS}}}a")]
+    assert anchors == ["Intro & Setup", "Install <Linux>", "Usage"]
+
+    # Nested <ol> exists under first <li>
+    nested_ols = toc_nav.findall(f".//{{{XHTML_NS}}}ol/{{{XHTML_NS}}}li/{{{XHTML_NS}}}ol")
+    assert len(nested_ols) == 1
+
+    # Landmarks nav exists
+    landmarks_nav = next(
+        (n for n in navs if n.get(f"{{{EPUB_OPS_NS}}}type") == "landmarks"),
+        None,
+    )
+    assert landmarks_nav is not None
+
+    # Empty TOC falls back to single valid <li>
+    empty_nav = ET.fromstring(generate_nav_xhtml(entries=[], default_href="Text/chapter_1.xhtml"))
+    empty_links = empty_nav.findall(f".//{{{XHTML_NS}}}nav[@id='toc']//{{{XHTML_NS}}}a")
+    assert len(empty_links) == 1
+    assert empty_links[0].get("href") == "Text/chapter_1.xhtml"
+
+
+def test_generate_toc_ncx_and_navigation_builder_integration() -> None:
+    """Verify legacy DAISY NCX playOrder, dtb:uid/dtb:depth, and EPUBPackage round-trip."""
+    uid = "urn:uuid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    tree = build_toc_tree(
+        [
+            TocEntry("Chapter 1", "Text/ch1.xhtml", level=1),
+            TocEntry("Topic 1.1", "Text/ch1.xhtml#t1", level=2),
+            TocEntry("Subtopic 1.1.1", "Text/ch1.xhtml#t1-1", level=3),
+            TocEntry("Chapter 2", "Text/ch2.xhtml", level=1),
+        ]
+    )
+    builder = NavigationBuilder(
+        entries=tree,
+        identifier=uid,
+        title="Guide & Manual",
+        author="Tech Author",
+        language="en",
+        stylesheet_href="Styles/style.css",
+    )
+    nav_bytes = builder.build_nav_xhtml()
+    ncx_bytes = builder.build_toc_ncx()
+
+    ncx_root = ET.fromstring(ncx_bytes)
+    assert ncx_root.tag == f"{{{NCX_NS}}}ncx"
+    assert ncx_root.get("version") == "2005-1"
+
+    metas = {
+        el.get("name"): el.get("content")
+        for el in ncx_root.findall(f".//{{{NCX_NS}}}head/{{{NCX_NS}}}meta")
+    }
+    assert metas["dtb:uid"] == uid
+    assert metas["dtb:depth"] == "3"
+
+    doc_title = ncx_root.find(f"{{{NCX_NS}}}docTitle/{{{NCX_NS}}}text")
+    assert doc_title is not None and doc_title.text == "Guide & Manual"
+
+    doc_author = ncx_root.find(f"{{{NCX_NS}}}docAuthor/{{{NCX_NS}}}text")
+    assert doc_author is not None and doc_author.text == "Tech Author"
+
+    # Depth-first sequential playOrder 1..4
+    nav_points = list(ncx_root.iter(f"{{{NCX_NS}}}navPoint"))
+    assert [np.get("playOrder") for np in nav_points] == ["1", "2", "3", "4"]
+    assert [np.get("id") for np in nav_points] == [
+        "navPoint-1",
+        "navPoint-2",
+        "navPoint-3",
+        "navPoint-4",
+    ]
+
+    # Empty TOC fallback in NCX
+    empty_ncx = ET.fromstring(generate_toc_ncx(entries=[], identifier=uid, title="Blank"))
+    empty_nps = list(empty_ncx.iter(f"{{{NCX_NS}}}navPoint"))
+    assert len(empty_nps) == 1
+    assert empty_nps[0].get("playOrder") == "1"
+
+    # Full container round-trip with OPF + nav.xhtml + toc.ncx
+    opf = PackageDocument(metadata=OPFMetadata(title="Guide & Manual", identifier=uid))
+    opf.add_navigation("nav.xhtml")
+    opf.add_ncx("toc.ncx")
+    opf.add_stylesheet("Styles/style.css")
+    opf.add_xhtml("ch1", "Text/ch1.xhtml")
+    opf.add_xhtml("ch2", "Text/ch2.xhtml")
+
+    pkg = EPUBPackage()
+    pkg.add_oebps_part("content.opf", opf.to_bytes(require_nav=True), media_type=MEDIA_TYPE_OPF)
+    pkg.add_oebps_part("nav.xhtml", nav_bytes, media_type=MEDIA_TYPE_XHTML)
+    pkg.add_oebps_part("toc.ncx", ncx_bytes, media_type=MEDIA_TYPE_NCX)
+    pkg.add_oebps_part("Styles/style.css", "body {}", media_type=MEDIA_TYPE_CSS)
+    pkg.add_oebps_part("Text/ch1.xhtml", "<html/>", media_type=MEDIA_TYPE_XHTML)
+    pkg.add_oebps_part("Text/ch2.xhtml", "<html/>", media_type=MEDIA_TYPE_XHTML)
+
+    parsed = EPUBPackage.parse(pkg.to_bytes())
+    assert ET.fromstring(parsed.get_part("OEBPS/nav.xhtml").content) is not None
+    assert ET.fromstring(parsed.get_part("OEBPS/toc.ncx").content) is not None
