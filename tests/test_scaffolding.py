@@ -39,7 +39,7 @@ class TestScaffoldingAndPackaging(unittest.TestCase):
 
     def test_package_metadata(self) -> None:
         """Verify top-level package metadata."""
-        self.assertEqual(anyconvert.__version__, "0.1.11")
+        self.assertEqual(anyconvert.__version__, "0.1.12")
         self.assertTrue(isinstance(anyconvert.__author__, str))
         self.assertTrue(isinstance(anyconvert.__license__, str))
 

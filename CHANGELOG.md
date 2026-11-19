@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.12] - 2026-11-19
+
+### Added
+- **EPUB 3.3 E-Book Generation Engine (`-f epub`)**: Added zero-dependency W3C EPUB 3.3 digital book emitter (`EpubEmitter`) with OCF 3.3 ZIP container packaging (`mimetype` uncompressed at byte offset 0, `META-INF/container.xml`, `OEBPS/` directory structure), OPF 3.0 `content.opf` with Dublin Core metadata and UTC `dcterms:modified`, hierarchical H1–H3 `nav.xhtml` plus legacy DAISY `toc.ncx` fallback for Kindle/Kobo, automatic chapter splitting at `H1` or page boundaries, embedded typography, packaged images, and inline SVG support.
+- **Markdown / GFM Emitter (`-f md`)**: Dedicated Markdown generation engine supporting CommonMark and GitHub Flavored Markdown dialects, ATX headings (`#`–`######`), inline rich text styling, 2D GFM table matrix formatting (`col_span`/`row_span` normalization, multi-line `<br>` escaping, automatic `:---` / `:---:` / `---:` alignment detection), fenced code blocks with language hints and backtick fence escaping, and extended GFM task lists (Unicode ballot boxes, checkmarks, radio buttons).
+- **YAML Frontmatter & PDF Date Normalization**: Added pure-Python YAML frontmatter generator (`title`, `author`, `description`, `keywords`, `date`, `lastmod`, `creator`, `producer`) ready for Hugo, Jekyll, Docusaurus, and VitePress, alongside ISO 8601 PDF date parsing (`parse_pdf_date()`).
+- **Image Asset Extraction Mode (`--extract-images [DIR]`)**: Added CLI option and Python API `extract_images` parameter to write embedded JPEG, PNG, and WebP assets to disk and link them cleanly in Markdown (`![alt](images/img_1.jpeg)`).
+- **Unicode Box-Drawing Plaintext Canvas (`-f txt -m canvas`)**: Upgraded the 2D character grid emitter with directional junction-merging Unicode box-drawing characters (`┌─┐│└─┘┬┴├┤┼`) for table borders, `col_span` cells, image frames, and vector SVG paths (with optional ASCII fallback).
+
+### Changed
+- **CLI & API Format Expansion**: Added `md` and `epub` to supported formats in CLI (`-f md`, `-f epub`) and Python API (`output_format="md"`, `output_format="epub"`), and refactored `TxtFlowEmitter` to subclass `MarkdownEmitter(include_frontmatter=False)`.
+
+### Fixed
+- **PDF `/Info` Metadata Extraction**: Enhanced `PDFDocument.get_metadata()` to dereference indirect `/Info` string references (`PDFIndirectRef`), decrypt encrypted metadata strings, strip null bytes, and normalize `CreationDate`/`ModDate` values.
+
+---
+
 ## [0.1.11] - 2026-10-29
 
 ### Added

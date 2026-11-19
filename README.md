@@ -6,7 +6,7 @@
 
 **Python document conversion engine**
 
-`anyconvert` converts PDF documents into **DOCX**, **PPTX**, **ODT**, **ODP**, **TXT**, **SVG**, and **HTML5** using only the Python standard library.
+`anyconvert` converts PDF documents into **DOCX**, **PPTX**, **ODT**, **ODP**, **TXT**, **SVG**, **HTML5**, **Markdown (GFM)**, and **EPUB 3** using only the Python standard library.
 
 ---
 
@@ -21,6 +21,14 @@
 - **Single-File HTML5**:
   - Semantic reflowable output (`<article>`, `<header>`, `<footer>`, `<table class="pure-table">`, `<ul class="flow-list">`) and pixel-accurate canvas (`position: absolute`, inline `<svg>`, affine matrix transforms).
   - Truly portable single-file packaging with Base64 Data URI image embedding and zero-telemetry offline Content-Security-Policy (`<meta http-equiv="Content-Security-Policy">`).
+- **Markdown / GFM & Static Site Ready Output**:
+  - Configurable CommonMark and GitHub Flavored Markdown (GFM) dialects with ATX headings, 2D aligned pipe tables (`col_span`/`row_span`, `<br>` multi-line escaping, auto-detected column alignments), fenced code blocks with language hints, and extended GFM task checklists.
+  - Pure-Python YAML frontmatter extracted from PDF `/Info` metadata (`title`, `author`, `description`, `keywords`, `date`) for Hugo, Jekyll, Docusaurus, and VitePress.
+  - Modular media extraction via `--extract-images [DIR]` writing embedded JPEG/PNG/WebP images to disk with relative Markdown links.
+- **EPUB 3.3 E-Book Generation Engine**:
+  - Standards-compliant OCF 3.3 container (`mimetype` uncompressed at byte offset 0, `META-INF/container.xml`, `OEBPS/` structure), OPF 3.0 `content.opf` manifest and spine with Dublin Core metadata, hierarchical H1–H3 `nav.xhtml` plus legacy DAISY `toc.ncx` fallback for Kindle/Kobo, and automatic chapter splitting at `H1` or page boundaries.
+- **Terminal-Friendly Plaintext Canvas**:
+  - 2D character grid renderer (`-f txt -m canvas`) with junction-merging Unicode box-drawing (`┌─┐│└─┘┬┴├┤┼`) for table grids, image frames, and vector lines.
 - **Comprehensive PDF Coverage**:
   - Classic ASCII xref tables, xref streams (`/Type /XRef`), and object streams (`/Type /ObjStm`).
   - Standard PDF Security Revisions 2–6 (RC4 40–128 bit, AES-128, and AES-256 CBC).
@@ -30,7 +38,7 @@
 - **Standards-Compliant Packaging**:
   - **OPC (ISO/IEC 29500-2)**: Generates valid WordprocessingML (`.docx`) and PresentationML (`.pptx`) packages with complete `[Content_Types].xml` and `.rels` hierarchies.
   - **ODF (ISO/IEC 26300)**: Generates compliant OpenDocument Text (`.odt`) and Presentation (`.odp`) archives with uncompressed `mimetype` headers at byte offset 0.
-  - **W3C SVG & HTML5**: Standards-compliant vector graphics and self-contained HTML5 reports.
+  - **W3C SVG, HTML5 & EPUB 3.3**: Standards-compliant vector graphics, self-contained HTML5 reports, and validated EPUB 3.3 OCF digital books.
 
 ---
 
@@ -42,7 +50,9 @@
 | **Microsoft PowerPoint** | `.pptx` | Reflowable slide text | Coordinate shapes & DrawingML `<a:custGeom>` | ISO/IEC 29500-2 (OPC) |
 | **OpenDocument Text** | `.odt` | Semantic `<text:p>`, `<table:table>` | Positioned `<draw:frame>`, `<draw:path>` | ISO/IEC 26300 (ODF) |
 | **OpenDocument Presentation** | `.odp` | Slide content boxes | Coordinate `<draw:frame>`, `<draw:path>` | ISO/IEC 26300 (ODF) |
-| **Plaintext / Markdown** | `.txt` | Formatted Markdown text | 2D character-grid layout | UTF-8 Plaintext |
+| **Plaintext** | `.txt` | Clean reflowable text | Unicode box-drawing (`┌─┐│└─┘`) 2D character grid | UTF-8 Plaintext |
+| **Markdown / GFM** | `.md` | GFM tables, code fences, task lists, YAML frontmatter, `--extract-images` | Reflowable GFM / CommonMark | CommonMark / GFM |
+| **EPUB 3 E-Book** | `.epub` | Split XHTML chapters, `nav.xhtml` + `toc.ncx`, embedded CSS & images | Reflowable EPUB 3.3 | W3C EPUB 3.3 (OCF) |
 | **Scalable Vector Graphics** | `.svg` | Vertically stacked vector view | Individual SVG vector pages with curves & text | W3C SVG 1.1 |
 | **Standalone HTML5** | `.html` | Semantic `<article>`, `<p>`, `<table>` | Absolute coordinate `<div>` & `<svg>` canvas | W3C HTML5 (Offline Data URI) |
 
@@ -84,15 +94,31 @@ anyconvert [OPTIONS] INPUT_PDF
 
 | Flag | Argument | Description | Default |
 | :--- | :--- | :--- | :--- |
-| `-f`, `--format` | `docx\|pptx\|odt\|odp\|txt\|svg\|html` | Target document format | `docx` |
+| `-f`, `--format` | `docx\|pptx\|odt\|odp\|txt\|svg\|html\|md\|epub` | Target document format | `docx` |
 | `-o`, `--output` | `PATH` | Output destination file path | `{input_basename}.{format}` |
 | `-m`, `--mode` | `flow\|canvas` | Layout reconstruction mode (`canvas` for 1:1 visual match) | `flow` |
 | `-p`, `--password` | `STRING` | Decryption password for encrypted PDFs | `""` |
+| `--extract-images` | `[DIR]` | Extract embedded images to `DIR` (defaults to `images/`) and link in Markdown | `None` |
 | `-v`, `--verbose` | | Enable diagnostic logging | `False` |
 | `--version` | | Print version and exit | |
 | `-h`, `--help` | | Show help message and exit | |
 
 ### CLI Examples
+
+**Convert PDF Book to EPUB 3.3 E-Book (with TOC & Chapters):**
+```bash
+anyconvert book.pdf -f epub -o book.epub
+```
+
+**Export Markdown with YAML Frontmatter & Extracted Images:**
+```bash
+anyconvert guide.pdf -f md -o guide.md --extract-images ./assets/
+```
+
+**Terminal Unicode Box-Drawing Canvas View:**
+```bash
+anyconvert invoice.pdf -f txt -m canvas -o invoice.txt
+```
 
 **Single-File Responsive Web Document (HTML5 Flow):**
 ```bash
@@ -157,6 +183,21 @@ convert(
     output_format="odt",
     output_path="output.odt",
     mode=ConversionMode.FLOW,  # or "flow"
+)
+
+# Markdown export with extracted image assets
+convert(
+    input_path="guide.pdf",
+    output_format="md",
+    output_path="guide.md",
+    extract_images="./assets",
+)
+
+# EPUB 3.3 e-book generation
+convert(
+    input_path="book.pdf",
+    output_format="epub",
+    output_path="book.epub",
 )
 ```
 
@@ -226,8 +267,8 @@ for page in doc_ir.pages:
                                     │
        ┌─────────────────────┬──────┴──────────────┬─────────────────────┐
        ▼                     ▼                     ▼                     ▼
-[ DOCX Emitter ]      [ PPTX Emitter ]      [ ODT / ODP / TXT ]   [ HTML5 / SVG ]
-  (DrawingML)           (DrawingML)           (ISO/IEC 26300)      (Flow & Canvas)
+[ DOCX / PPTX ]       [ ODT / ODP ]         [ TXT / MD ]          [ HTML5 / SVG / EPUB 3 ]
+  (DrawingML)         (ISO/IEC 26300)     (Canvas / GFM)         (W3C Web / OCF 3.3)
 ```
 
 ---
