@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 from anyconvert.common.reader import ByteReader
 from anyconvert.emitters.base import BaseEmitter, ConversionMode
 from anyconvert.emitters.docx import DocxEmitter
+from anyconvert.emitters.epub import EpubEmitter
 from anyconvert.emitters.html import HTMLEmitter
 from anyconvert.emitters.md import MarkdownEmitter
 from anyconvert.emitters.odp import OdpEmitter
@@ -35,7 +36,17 @@ from anyconvert.pdf.content.interpreter import ContentInterpreter, InterpreterOu
 from anyconvert.pdf.document import PDFDocument
 from anyconvert.pdf.parser import PDFArray, PDFDict, PDFIndirectRef
 
-SUPPORTED_FORMATS: Set[str] = {"docx", "pptx", "odt", "odp", "txt", "svg", "html", "md"}
+SUPPORTED_FORMATS: Set[str] = {
+    "docx",
+    "pptx",
+    "odt",
+    "odp",
+    "txt",
+    "svg",
+    "html",
+    "md",
+    "epub",
+}
 
 
 def _resolve_conversion_mode(mode: Union[ConversionMode, str]) -> ConversionMode:
@@ -121,6 +132,8 @@ def _get_emitter(
             image_dir=image_dir,
             image_link_prefix=image_link_prefix,
         )
+    elif fmt == "epub":
+        return EpubEmitter()
     raise UnsupportedFormatError(
         format_name=output_format,
         supported_formats=sorted(list(SUPPORTED_FORMATS)),

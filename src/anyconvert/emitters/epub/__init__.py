@@ -2,6 +2,17 @@
 
 from __future__ import annotations
 
+from anyconvert.emitters.epub.content import (
+    DEFAULT_EPUB_CSS,
+    ChapterRenderer,
+    ChapterSection,
+    ChapterSplitStrategy,
+    ExtractedImageAsset,
+    RenderedChapter,
+    resolve_split_strategy,
+    split_document_into_chapters,
+)
+from anyconvert.emitters.epub.emitter import EpubEmitter
 from anyconvert.emitters.epub.nav import (
     EPUB_OPS_NS,
     NCX_NS,
@@ -31,6 +42,15 @@ from anyconvert.emitters.epub.opf import (
 )
 
 __all__ = [
+    "EpubEmitter",
+    "DEFAULT_EPUB_CSS",
+    "ChapterSplitStrategy",
+    "ChapterSection",
+    "ExtractedImageAsset",
+    "RenderedChapter",
+    "ChapterRenderer",
+    "resolve_split_strategy",
+    "split_document_into_chapters",
     "XHTML_NS",
     "EPUB_OPS_NS",
     "NCX_NS",

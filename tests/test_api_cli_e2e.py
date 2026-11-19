@@ -300,6 +300,23 @@ class TestEndToEndConversion(unittest.TestCase):
         self.assertIn("- Global Operations Overview", md_text)
         self.assertIn("Quarter 1 Revenue: $4.2B", md_text)
 
+    def test_epub_conversion(self) -> None:
+        """Verify end-to-end PDF to EPUB 3.3 conversion."""
+        epub_data = convert(self.pdf_bytes, output_format="epub")
+        self.assertIsInstance(epub_data, bytes)
+        self.assertTrue(epub_data.startswith(b"PK\x03\x04"))
+        self.assertEqual(epub_data[30:58], b"mimetypeapplication/epub+zip")
+        with zipfile.ZipFile(io.BytesIO(epub_data), "r") as zf:
+            names = zf.namelist()
+            self.assertEqual(names[0], "mimetype")
+            self.assertIn("META-INF/container.xml", names)
+            self.assertIn("OEBPS/content.opf", names)
+            self.assertIn("OEBPS/nav.xhtml", names)
+            self.assertIn("OEBPS/toc.ncx", names)
+            self.assertIn("OEBPS/Text/chapter_1.xhtml", names)
+            ch1_xml = zf.read("OEBPS/Text/chapter_1.xhtml").decode("utf-8")
+            self.assertIn("Annual Corporate Report 2026", ch1_xml)
+
 
 class TestAPIUsageAndEdgeCases(unittest.TestCase):
     """Tests for API convenience methods, argument validation, and error paths."""
@@ -338,7 +355,7 @@ class TestAPIUsageAndEdgeCases(unittest.TestCase):
     def test_unsupported_format_raises(self) -> None:
         """Verify UnsupportedFormatError is raised for invalid target format."""
         with self.assertRaises(UnsupportedFormatError):
-            convert(self.pdf_bytes, output_format="epub")
+            convert(self.pdf_bytes, output_format="xyz_unknown")
 
     def test_invalid_mode_raises(self) -> None:
         """Verify ValueError is raised for invalid conversion mode."""

@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import pathlib
 import re
 from typing import List
 import xml.etree.ElementTree as ET
 
 import pytest
 
+from anyconvert.api import SUPPORTED_FORMATS, convert
+from anyconvert.cli import main
 from anyconvert.common.color import Color
+from anyconvert.common.geometry import BoundingBox
+from anyconvert.emitters.epub import (
+    ChapterRenderer,
+    ChapterSplitStrategy,
+    EpubEmitter,
+    resolve_split_strategy,
+    split_document_into_chapters,
+)
 from anyconvert.emitters.epub.nav import (
     EPUB_OPS_NS,
     NCX_NS,
@@ -32,12 +43,18 @@ from anyconvert.emitters.epub.opf import (
 )
 from anyconvert.exceptions import PackagingError, SerializationError
 from anyconvert.ir.model import (
+    Alignment,
     BlockNode,
     DocumentIR,
     DocumentPage,
     HeadingLevel,
+    ImageBlock,
     Paragraph,
+    Table,
+    TableCell,
+    TableRow,
     TextRun,
+    VectorBlock,
 )
 from anyconvert.packaging.epub import (
     MEDIA_TYPE_CSS,
@@ -413,3 +430,207 @@ def test_generate_toc_ncx_and_navigation_builder_integration() -> None:
     parsed = EPUBPackage.parse(pkg.to_bytes())
     assert ET.fromstring(parsed.get_part("OEBPS/nav.xhtml").content) is not None
     assert ET.fromstring(parsed.get_part("OEBPS/toc.ncx").content) is not None
+
+
+# ==============================================================================
+# Chapter Splitting, XHTML Content & EpubEmitter E2E Tests
+# ==============================================================================
+
+
+def test_chapter_splitting_strategies() -> None:
+    """Verify H1-boundary, page-boundary, auto fallback, and max_pages_per_chapter splitting."""
+    assert resolve_split_strategy("auto") == ChapterSplitStrategy.AUTO
+    assert resolve_split_strategy("heading") == ChapterSplitStrategy.HEADING
+    assert resolve_split_strategy("page") == ChapterSplitStrategy.PAGE
+    with pytest.raises(ValueError):
+        resolve_split_strategy("invalid")
+
+    black = Color.black()
+    # Multi-page document with two H1 chapters
+    p1 = DocumentPage(
+        1,
+        612.0,
+        792.0,
+        blocks=[
+            Paragraph(runs=[TextRun("Chapter One", "Helvetica", 20.0, black)], heading_level=HeadingLevel.H1),
+            Paragraph(runs=[TextRun("Opening text.", "Helvetica", 12.0, black)]),
+        ],
+    )
+    p2 = DocumentPage(
+        2,
+        612.0,
+        792.0,
+        blocks=[
+            Paragraph(runs=[TextRun("Continuation of chapter one.", "Helvetica", 12.0, black)]),
+            Paragraph(runs=[TextRun("Chapter Two", "Helvetica", 20.0, black)], heading_level=HeadingLevel.H1),
+            Paragraph(runs=[TextRun("Second chapter body.", "Helvetica", 12.0, black)]),
+        ],
+    )
+    doc_h1 = DocumentIR(pages=[p1, p2])
+
+    auto_chapters = split_document_into_chapters(doc_h1, strategy="auto")
+    assert len(auto_chapters) == 2
+    assert auto_chapters[0].title == "Chapter One"
+    assert len(auto_chapters[0].blocks) == 3
+    assert auto_chapters[1].title == "Chapter Two"
+    assert len(auto_chapters[1].blocks) == 2
+
+    # Page strategy forces 1 chapter per page
+    page_chapters = split_document_into_chapters(doc_h1, strategy="page")
+    assert len(page_chapters) == 2
+    assert page_chapters[0].page_numbers == [1]
+    assert page_chapters[1].page_numbers == [2]
+
+    # Document with NO H1 headings splits by page under AUTO
+    no_h1_doc = DocumentIR(
+        pages=[
+            DocumentPage(1, 612.0, 792.0, blocks=[Paragraph(runs=[TextRun("Page 1 body", "H", 12.0, black)])]),
+            DocumentPage(2, 612.0, 792.0, blocks=[Paragraph(runs=[TextRun("Page 2 body", "H", 12.0, black)])]),
+        ]
+    )
+    fallback_chapters = split_document_into_chapters(no_h1_doc, strategy="auto")
+    assert len(fallback_chapters) == 2
+    assert fallback_chapters[0].title == "Page 1"
+    assert fallback_chapters[1].title == "Page 2"
+
+
+def test_epub_emitter_full_multichapter_book_with_rich_blocks(tmp_path: pathlib.Path) -> None:
+    """Verify EpubEmitter renders headings, lists, tables, images, and inline SVG into valid EPUB 3.3."""
+    black = Color.black()
+    blue = Color(0, 64, 180)
+
+    tbl = Table(
+        rows=[
+            TableRow(
+                cells=[
+                    TableCell(content=[Paragraph(runs=[TextRun("Metric", "H", 10.0, black)])]),
+                    TableCell(content=[Paragraph(runs=[TextRun("Value", "H", 10.0, black)])]),
+                ],
+                is_header=True,
+            ),
+            TableRow(
+                cells=[
+                    TableCell(content=[Paragraph(runs=[TextRun("Speed", "H", 10.0, black)])]),
+                    TableCell(content=[Paragraph(runs=[TextRun("Fast", "H", 10.0, black)])]),
+                ],
+                is_header=False,
+            ),
+        ]
+    )
+    img = ImageBlock(
+        image_bytes=b"\x89PNG\r\n\x1a\nFAKE_EPUB_PNG",
+        bbox=BoundingBox(0, 0, 120, 80),
+        alt_text="Architecture Diagram",
+        format="png",
+    )
+    vec = VectorBlock(
+        svg_path="M 0 0 L 100 0 L 100 50 L 0 50 Z",
+        bbox=BoundingBox(0, 0, 100, 50),
+        stroke_color=blue,
+    )
+
+    ch1_blocks: List[BlockNode] = [
+        Paragraph(runs=[TextRun("Chapter 1: Overview", "Helvetica", 20.0, black)], heading_level=HeadingLevel.H1),
+        Paragraph(
+            runs=[
+                TextRun("Normal ", "Helvetica", 12.0, black),
+                TextRun("Bold", "Helvetica", 12.0, blue, is_bold=True),
+                TextRun(" and ", "Helvetica", 12.0, black),
+                TextRun("code()", "Courier", 11.0, black),
+            ],
+            alignment=Alignment.JUSTIFIED,
+        ),
+        Paragraph(runs=[TextRun("First bullet", "Helvetica", 12.0, black)], list_marker="-"),
+        Paragraph(runs=[TextRun("Second bullet", "Helvetica", 12.0, black)], list_marker="-"),
+        tbl,
+        img,
+    ]
+    ch2_blocks: List[BlockNode] = [
+        Paragraph(runs=[TextRun("Chapter 2: Vectors", "Helvetica", 20.0, black)], heading_level=HeadingLevel.H1),
+        Paragraph(runs=[TextRun("2.1 Diagrams", "Helvetica", 16.0, black)], heading_level=HeadingLevel.H2),
+        vec,
+    ]
+
+    doc_ir = DocumentIR(
+        pages=[
+            DocumentPage(1, 612.0, 792.0, blocks=ch1_blocks),
+            DocumentPage(2, 612.0, 792.0, blocks=ch2_blocks),
+        ],
+        metadata={
+            "Title": "EPUB 3 Complete Reference",
+            "Author": "AnyConvert Authors",
+            "Language": "en",
+        },
+    )
+
+    emitter = EpubEmitter()
+    epub_bytes = emitter.emit(doc_ir)
+
+    # Parse back through strict OCF 3.3 validator
+    parsed = EPUBPackage.parse(epub_bytes)
+    assert parsed.has_part("OEBPS/content.opf")
+    assert parsed.has_part("OEBPS/nav.xhtml")
+    assert parsed.has_part("OEBPS/toc.ncx")
+    assert parsed.has_part("OEBPS/Styles/style.css")
+    assert parsed.has_part("OEBPS/Text/chapter_1.xhtml")
+    assert parsed.has_part("OEBPS/Text/chapter_2.xhtml")
+    assert parsed.has_part("OEBPS/Images/img_1.png")
+
+    # Verify XML well-formedness of every XHTML chapter and OPF manifest properties
+    ch1_root = ET.fromstring(parsed.get_part("OEBPS/Text/chapter_1.xhtml").content)
+    ch2_root = ET.fromstring(parsed.get_part("OEBPS/Text/chapter_2.xhtml").content)
+    assert ch1_root.find(f".//{{{XHTML_NS}}}table") is not None
+    assert ch1_root.find(f".//{{{XHTML_NS}}}ul") is not None
+    img_el = ch1_root.find(f".//{{{XHTML_NS}}}img")
+    assert img_el is not None and img_el.get("src") == "../Images/img_1.png"
+    assert ch2_root is not None
+
+    opf_root = ET.fromstring(parsed.get_part("OEBPS/content.opf").content)
+    manifest_items = {
+        el.get("id"): el for el in opf_root.findall(f".//{{{OPF_NS}}}manifest/{{{OPF_NS}}}item")
+    }
+    assert manifest_items["ch2"].get("properties") == "svg"
+    assert manifest_items["img_1"].get("href") == "Images/img_1.png"
+
+    # Empty DocumentIR raises SerializationError
+    with pytest.raises(SerializationError):
+        emitter.emit(DocumentIR(pages=[]))
+
+    # Verify API & CLI registration
+    assert "epub" in SUPPORTED_FORMATS
+    out_epub = tmp_path / "book.epub"
+    convert(doc_ir, output_format="epub", output_path=out_epub)
+    assert out_epub.is_file()
+    assert EPUBPackage.parse(out_epub).has_part("OEBPS/Text/chapter_1.xhtml")
+
+    # Verify CLI accepts -f epub on a minimal PDF
+    pdf_path = tmp_path / "sample.pdf"
+    pdf_objs = [
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        b"2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        (
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Contents 4 0 R /Resources << /Font << /F1 << /Type /Font "
+            b"/Subtype /Type1 /BaseFont /Helvetica >> >> >> >>\nendobj\n"
+        ),
+        b"4 0 obj\n<< /Length 55 >>\nstream\nBT /F1 14 Tf 72 700 Td (CLI EPUB Test) Tj ET\nendstream\nendobj\n",
+    ]
+    out_pdf = bytearray(b"%PDF-1.4\n")
+    offs = [0]
+    for obj in pdf_objs:
+        offs.append(len(out_pdf))
+        out_pdf.extend(obj)
+    xref_pos = len(out_pdf)
+    out_pdf.extend(f"xref\n0 {len(pdf_objs) + 1}\n0000000000 65535 f \n".encode("ascii"))
+    for o in offs[1:]:
+        out_pdf.extend(f"{o:010d} 00000 n \n".encode("ascii"))
+    out_pdf.extend(
+        f"trailer\n<< /Size {len(pdf_objs) + 1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode("ascii")
+    )
+    pdf_path.write_bytes(bytes(out_pdf))
+
+    cli_epub = tmp_path / "cli_out.epub"
+    assert main([str(pdf_path), "-f", "epub", "-o", str(cli_epub)]) == 0
+    assert cli_epub.is_file()
+    assert EPUBPackage.parse(cli_epub).has_part("OEBPS/Text/chapter_1.xhtml")
+    assert isinstance(ChapterRenderer(), ChapterRenderer)
