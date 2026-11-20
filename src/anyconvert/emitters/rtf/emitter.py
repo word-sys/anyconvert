@@ -10,60 +10,31 @@ Generates valid 7-bit ASCII Rich Text Format (RTF 1.9.1) documents featuring:
 
 from __future__ import annotations
 
-import re
 from typing import Dict, List, Optional, Tuple
 
 from anyconvert.common.color import Color
 from anyconvert.emitters.base import BaseEmitter, ConversionMode, pt_to_dxa, pt_to_half_pt
+from anyconvert.emitters.rtf.unicode import (
+    classify_rtf_font_family,
+    clean_rtf_font_name,
+    detect_rtf_codepage,
+    encode_rtf_unicode,
+    escape_rtf_text,
+    get_codepage_profile,
+    resolve_rtf_font,
+)
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
     Alignment,
     BlockNode,
     DocumentIR,
     DocumentPage,
-    HeadingLevel,
     ImageBlock,
     Paragraph,
     Table,
     TextRun,
     VectorBlock,
 )
-
-# PDF embedded font subset tag pattern (e.g., "ABCDEF+Helvetica-Bold")
-_SUBSET_PREFIX_RE = re.compile(r"^[A-Z]{6}\+")
-
-_MONOSPACE_HINTS = (
-    "mono",
-    "courier",
-    "consolas",
-    "menlo",
-    "monaco",
-    "terminal",
-    "sourcecode",
-)
-_SERIF_HINTS = (
-    "times",
-    "georgia",
-    "garamond",
-    "cambria",
-    "palatino",
-    "serif",
-    "book",
-    "baskerville",
-)
-_SANS_HINTS = (
-    "helvetica",
-    "arial",
-    "calibri",
-    "verdana",
-    "tahoma",
-    "segoe",
-    "sans",
-    "roboto",
-    "inter",
-    "open",
-)
-_TECH_HINTS = ("symbol", "wingdings", "webdings", "zapf")
 
 # Standard stylesheet heading sizes in half-points (RTF \fsN)
 _HEADING_HALF_PT: Dict[int, int] = {
@@ -76,85 +47,25 @@ _HEADING_HALF_PT: Dict[int, int] = {
 }
 
 
-def clean_rtf_font_name(raw_name: str) -> str:
-    """Normalize a PDF font name into a clean RTF font face name."""
-    if not raw_name or not raw_name.strip():
-        return "Helvetica"
-    cleaned = _SUBSET_PREFIX_RE.sub("", raw_name.strip())
-    # Strip common PDF style suffixes after hyphen/comma
-    base = re.split(r"[-,]", cleaned, maxsplit=1)[0].strip()
-    base = base.replace(";", "").replace("{", "").replace("}", "").replace("\\", "")
-    return base or "Helvetica"
-
-
-def classify_rtf_font_family(font_name: str) -> str:
-    """Map a font name to its RTF 1.9.1 font family control word."""
-    low = font_name.lower().replace(" ", "").replace("-", "").replace("_", "")
-    if any(k in low for k in _MONOSPACE_HINTS):
-        return r"\fmodern"
-    if any(k in low for k in _TECH_HINTS):
-        return r"\ftech"
-    if any(k in low for k in _SERIF_HINTS):
-        return r"\froman"
-    if any(k in low for k in _SANS_HINTS):
-        return r"\fswiss"
-    return r"\fnil"
-
-
-def escape_rtf_text(text: str) -> str:
-    """Escape text into strict 7-bit ASCII RTF syntax using \\uN? for non-ASCII characters."""
-    if not text:
-        return ""
-    out: List[str] = []
-    for ch in text:
-        code = ord(ch)
-        if ch == "\\":
-            out.append(r"\\")
-        elif ch == "{":
-            out.append(r"\{")
-        elif ch == "}":
-            out.append(r"\}")
-        elif ch == "\n":
-            out.append(r"\line ")
-        elif ch == "\t":
-            out.append(r"\tab ")
-        elif ch == "\r":
-            continue
-        elif 0x20 <= code <= 0x7E:
-            out.append(ch)
-        elif code < 0x20 or code == 0x7F:
-            continue
-        elif code <= 0xFFFF:
-            signed = code if code <= 32767 else code - 65536
-            out.append(f"\\u{signed}?")
-        else:
-            # Encode supplementary plane code points as UTF-16 surrogate pair
-            cp = code - 0x10000
-            high = 0xD800 + (cp >> 10)
-            low = 0xDC00 + (cp & 0x3FF)
-            out.append(f"\\u{high - 65536}?\\u{low - 65536}?")
-    return "".join(out)
-
-
 class RtfFontTable:
     """Registry of RTF font definitions for the \\fonttbl header group."""
 
-    __slots__ = ("_fonts", "_index_by_name")
+    __slots__ = ("_fonts", "_index_by_name", "charset")
 
-    def __init__(self, default_font: str = "Helvetica") -> None:
+    def __init__(self, default_font: str = "Helvetica", charset: int = 0) -> None:
         self._fonts: List[Tuple[str, str]] = []
         self._index_by_name: Dict[str, int] = {}
+        self.charset: int = charset
         self.register(default_font)
 
     def register(self, raw_font_name: str) -> int:
         """Register a font name and return its 0-based RTF font index (\\fN)."""
-        clean = clean_rtf_font_name(raw_font_name)
-        key = clean.lower()
+        resolved, family = resolve_rtf_font(raw_font_name)
+        key = resolved.lower()
         if key in self._index_by_name:
             return self._index_by_name[key]
         idx = len(self._fonts)
-        family = classify_rtf_font_family(clean)
-        self._fonts.append((clean, family))
+        self._fonts.append((resolved, family))
         self._index_by_name[key] = idx
         return idx
 
@@ -165,7 +76,7 @@ class RtfFontTable:
     def to_rtf(self) -> str:
         """Serialize the \\fonttbl group."""
         entries = [
-            f"{{\\f{idx}{family}\\fcharset0 {escape_rtf_text(name)};}}"
+            f"{{\\f{idx}{family}\\fcharset{self.charset} {encode_rtf_unicode(name)};}}"
             for idx, (name, family) in enumerate(self._fonts)
         ]
         return "{\\fonttbl" + "".join(entries) + "}"
@@ -236,17 +147,26 @@ class RtfStyleSheet:
 class RtfEmitter(BaseEmitter):
     """Pure-Python RTF 1.9.1 document emitter generating valid 7-bit ASCII RTF streams."""
 
-    __slots__ = ("default_font", "default_codepage", "default_lang")
+    __slots__ = (
+        "default_font",
+        "default_codepage",
+        "default_lang",
+        "auto_detect_codepage",
+        "_active_codepage",
+    )
 
     def __init__(
         self,
         default_font: str = "Helvetica",
         default_codepage: int = 1252,
         default_lang: int = 1033,
+        auto_detect_codepage: bool = True,
     ) -> None:
         self.default_font = default_font
         self.default_codepage = default_codepage
         self.default_lang = default_lang
+        self.auto_detect_codepage = auto_detect_codepage
+        self._active_codepage: int = default_codepage
 
     def emit(
         self,
@@ -276,15 +196,26 @@ class RtfEmitter(BaseEmitter):
         if not doc_ir.pages:
             raise SerializationError("Cannot emit RTF from empty DocumentIR")
 
+        # Collect text for script/codepage detection
+        text_chunks: List[str] = list(doc_ir.metadata.values())
         font_table = RtfFontTable(default_font=self.default_font)
         color_table = RtfColorTable()
         stylesheet = RtfStyleSheet(default_font_idx=0)
 
         # Pre-scan all runs, tables, and headers/footers to populate font and color tables
-        self._prescan_resources(doc_ir, font_table, color_table)
+        self._prescan_resources(doc_ir, font_table, color_table, text_chunks)
+
+        if self.auto_detect_codepage:
+            profile = detect_rtf_codepage("".join(text_chunks), default_codepage=self.default_codepage)
+        else:
+            profile = get_codepage_profile(self.default_codepage)
+
+        self._active_codepage = profile.codepage
+        font_table.charset = profile.charset
+        active_lang = profile.lang_id if profile.codepage != self.default_codepage else self.default_lang
 
         parts: List[str] = [
-            f"{{\\rtf1\\ansi\\ansicpg{self.default_codepage}\\deff0\\nouicompat\\deflang{self.default_lang}",
+            f"{{\\rtf1\\ansi\\ansicpg{profile.codepage}\\deff0\\nouicompat\\deflang{active_lang}",
             font_table.to_rtf(),
             color_table.to_rtf(),
             stylesheet.to_rtf(),
@@ -320,26 +251,28 @@ class RtfEmitter(BaseEmitter):
         doc_ir: DocumentIR,
         font_table: RtfFontTable,
         color_table: RtfColorTable,
+        text_chunks: List[str],
     ) -> None:
         """Register all fonts and colors appearing anywhere in DocumentIR."""
         for page in doc_ir.pages:
             if page.header:
                 for p in page.header.content:
-                    self._prescan_paragraph(p, font_table, color_table)
+                    self._prescan_paragraph(p, font_table, color_table, text_chunks)
             for block in page.blocks:
-                self._prescan_block(block, font_table, color_table)
+                self._prescan_block(block, font_table, color_table, text_chunks)
             if page.footer:
                 for p in page.footer.content:
-                    self._prescan_paragraph(p, font_table, color_table)
+                    self._prescan_paragraph(p, font_table, color_table, text_chunks)
 
     def _prescan_block(
         self,
         block: BlockNode,
         font_table: RtfFontTable,
         color_table: RtfColorTable,
+        text_chunks: List[str],
     ) -> None:
         if isinstance(block, Paragraph):
-            self._prescan_paragraph(block, font_table, color_table)
+            self._prescan_paragraph(block, font_table, color_table, text_chunks)
         elif isinstance(block, Table):
             for row in block.rows:
                 for cell in row.cells:
@@ -348,33 +281,37 @@ class RtfEmitter(BaseEmitter):
                     for border in cell.borders.values():
                         color_table.register(border.color)
                     for sub in cell.content:
-                        self._prescan_block(sub, font_table, color_table)
+                        self._prescan_block(sub, font_table, color_table, text_chunks)
 
     def _prescan_paragraph(
         self,
         p: Paragraph,
         font_table: RtfFontTable,
         color_table: RtfColorTable,
+        text_chunks: List[str],
     ) -> None:
         for run in p.runs:
             if run.font_name:
                 font_table.register(run.font_name)
             color_table.register(run.color)
+            if run.text:
+                text_chunks.append(run.text)
 
     def _build_info_group(self, metadata: Dict[str, str]) -> str:
         """Build the optional RTF \\info metadata group."""
         if not metadata:
             return ""
+        cp = self._active_codepage
         lowered = {k.lstrip("/").lower(): v.strip() for k, v in metadata.items() if v and v.strip()}
         entries: List[str] = []
         if "title" in lowered:
-            entries.append(f"{{\\title {escape_rtf_text(lowered['title'])}}}")
+            entries.append(f"{{\\title {encode_rtf_unicode(lowered['title'], codepage=cp)}}}")
         if "author" in lowered:
-            entries.append(f"{{\\author {escape_rtf_text(lowered['author'])}}}")
+            entries.append(f"{{\\author {encode_rtf_unicode(lowered['author'], codepage=cp)}}}")
         if "subject" in lowered:
-            entries.append(f"{{\\subject {escape_rtf_text(lowered['subject'])}}}")
+            entries.append(f"{{\\subject {encode_rtf_unicode(lowered['subject'], codepage=cp)}}}")
         if "keywords" in lowered:
-            entries.append(f"{{\\keywords {escape_rtf_text(lowered['keywords'])}}}")
+            entries.append(f"{{\\keywords {encode_rtf_unicode(lowered['keywords'], codepage=cp)}}}")
         if not entries:
             return ""
         entries.append("{\\operator anyconvert}")
@@ -499,7 +436,7 @@ class RtfEmitter(BaseEmitter):
         if p.list_marker:
             indent_twips = pt_to_dxa(18.0 * (max(0, p.list_level) + 1))
             ctrl.append(f"\\li{indent_twips}\\fi-360")
-            prefix = f"{escape_rtf_text(p.list_marker.strip())}\\tab "
+            prefix = f"{encode_rtf_unicode(p.list_marker.strip(), codepage=self._active_codepage)}\\tab "
 
         return "".join(ctrl) + " " + prefix + runs_rtf + "\\par"
 
@@ -531,7 +468,7 @@ class RtfEmitter(BaseEmitter):
         elif run.baseline_offset < -0.5:
             attrs.append("\\sub")
 
-        escaped = escape_rtf_text(run.text)
+        escaped = encode_rtf_unicode(run.text, codepage=self._active_codepage)
         return "{" + "".join(attrs) + " " + escaped + "}"
 
     def render_table(
@@ -579,7 +516,7 @@ class RtfEmitter(BaseEmitter):
     def render_image(self, img: ImageBlock) -> str:
         """Render an ImageBlock placeholder (binary \\pict embedding added in pictures.py)."""
         alt = img.alt_text.strip() if img.alt_text else "Image"
-        return f"\\pard\\s0\\qc\\sa120 [{escape_rtf_text(alt)}]\\par"
+        return f"\\pard\\s0\\qc\\sa120 [{encode_rtf_unicode(alt, codepage=self._active_codepage)}]\\par"
 
 
 __all__ = [

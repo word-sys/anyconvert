@@ -12,13 +12,23 @@ from anyconvert.cli import main
 from anyconvert.common.color import Color
 from anyconvert.common.geometry import BoundingBox
 from anyconvert.emitters.rtf import (
+    CP_CYRILLIC,
+    CP_GREEK,
+    CP_JAPANESE,
+    CP_KOREAN,
+    CP_SIMPLIFIED_CHINESE,
+    CP_TURKISH,
+    CP_WESTERN,
     RtfColorTable,
     RtfEmitter,
     RtfFontTable,
     RtfStyleSheet,
     classify_rtf_font_family,
     clean_rtf_font_name,
+    detect_rtf_codepage,
+    encode_rtf_unicode,
     escape_rtf_text,
+    resolve_rtf_font,
 )
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
@@ -237,3 +247,107 @@ def test_rtf_api_and_cli_integration(tmp_path: pathlib.Path) -> None:
     api_rtf = tmp_path / "api.rtf"
     convert(in_pdf, output_format="rtf", output_path=api_rtf)
     assert api_rtf.is_file()
+
+
+def test_rtf_unicode_escaping_and_ansi_fallbacks() -> None:
+    """Verify \\uN\\'xx and \\uN? escaping across Turkish, Cyrillic, Greek, CJK, and supplementary planes."""
+    # Turkish under cp1254 produces exact single-byte ANSI fallback hex escapes
+    tr_out = encode_rtf_unicode("ğĞıİşŞçöü", codepage=1254)
+    assert r"\u287\'f0" in tr_out  # ğ
+    assert r"\u286\'d0" in tr_out  # Ğ
+    assert r"\u305\'fd" in tr_out  # ı
+    assert r"\u304\'dd" in tr_out  # İ
+    assert r"\u351\'fe" in tr_out  # ş
+    assert r"\u350\'de" in tr_out  # Ş
+    assert r"\u231\'e7" in tr_out  # ç
+    assert r"\u246\'f6" in tr_out  # ö
+    assert r"\u252\'fc" in tr_out  # ü
+
+    # Cyrillic under cp1251
+    ru_out = encode_rtf_unicode("Привет", codepage=1251)
+    assert r"\u1055\'cf" in ru_out
+    assert ru_out.isascii()
+
+    # Greek under cp1253
+    el_out = encode_rtf_unicode("Αθήνα Ω", codepage=1253)
+    assert r"\u913\'c1" in el_out
+    assert r"\u937\'d9" in el_out
+    assert el_out.isascii()
+
+    # Asian scripts (Chinese, Japanese, Korean > 32767 signed 16-bit)
+    cjk_out = encode_rtf_unicode("漢字かな한국어", codepage=1252)
+    assert r"\u28450?" in cjk_out  # 漢 (U+6F22)
+    assert r"\u-10916?" in cjk_out  # 한 (U+D55C = 54620 -> -10916)
+    assert cjk_out.isascii()
+
+    # Supplementary plane (U+1D400 -> UTF-16 surrogate pair)
+    supp = encode_rtf_unicode("\U0001D400", codepage=1252)
+    assert supp == r"\u-10187?\u-9216?"
+
+
+def test_rtf_codepage_detection_and_font_resolution() -> None:
+    """Verify automatic script/codepage detection and PDF PostScript font alias resolution."""
+    assert detect_rtf_codepage("Plain ASCII text.") == CP_WESTERN
+    assert detect_rtf_codepage("İstanbul'da güneşli bir gün") == CP_TURKISH
+    assert detect_rtf_codepage("Привет мир") == CP_CYRILLIC
+    assert detect_rtf_codepage("Ελληνικά γράμματα") == CP_GREEK
+    assert detect_rtf_codepage("日本語のテスト") == CP_JAPANESE
+    assert detect_rtf_codepage("中文文档测试") == CP_SIMPLIFIED_CHINESE
+    assert detect_rtf_codepage("한국어 문서 테스트") == CP_KOREAN
+
+    assert resolve_rtf_font("ABCDEF+TimesNewRomanPSMT") == ("Times New Roman", r"\froman")
+    assert resolve_rtf_font("CourierNewPSMT") == ("Courier New", r"\fmodern")
+    assert resolve_rtf_font("ArialMT") == ("Arial", r"\fswiss")
+    assert resolve_rtf_font("ABCDEF+Helvetica-Bold") == ("Helvetica", r"\fswiss")
+
+
+def test_rtf_emitter_turkish_and_multilingual_documents() -> None:
+    """Verify RtfEmitter auto-switches codepage/charset for Turkish, Cyrillic, and CJK documents."""
+    black = Color.black()
+    doc_tr = DocumentIR(
+        pages=[
+            DocumentPage(
+                1,
+                595.0,
+                842.0,
+                blocks=[
+                    Paragraph(
+                        runs=[
+                            TextRun(
+                                "İstanbul'da güzel bir öğleden sonra: ğĞıİşŞçÇöÖüÜ",
+                                "ABCDEF+TimesNewRomanPSMT",
+                                12.0,
+                                black,
+                            )
+                        ]
+                    )
+                ],
+            )
+        ],
+        metadata={"Title": "Türkçe Belge", "Author": "Barın"},
+    )
+    rtf_tr_bytes = RtfEmitter().emit(doc_tr)
+    rtf_tr = assert_valid_rtf(rtf_tr_bytes)
+    assert r"\ansicpg1254" in rtf_tr
+    assert r"\deflang1055" in rtf_tr
+    assert r"\fcharset162 Times New Roman;" in rtf_tr
+    assert r"\u351\'fe" in rtf_tr
+    assert r"\u287\'f0" in rtf_tr
+    assert r"\u305\'fd" in rtf_tr
+
+    # Verify Cyrillic document selects cp1251 + fcharset204
+    doc_ru = DocumentIR(
+        pages=[
+            DocumentPage(
+                1,
+                595.0,
+                842.0,
+                blocks=[Paragraph(runs=[TextRun("Привет, мир!", "ArialMT", 12.0, black)])],
+            )
+        ]
+    )
+    rtf_ru = assert_valid_rtf(RtfEmitter().emit(doc_ru))
+    assert r"\ansicpg1251" in rtf_ru
+    assert r"\fcharset204 Arial;" in rtf_ru
+    assert r"\u1055\'cf" in rtf_ru
+
