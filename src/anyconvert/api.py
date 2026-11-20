@@ -21,6 +21,7 @@ from anyconvert.emitters.md import MarkdownEmitter
 from anyconvert.emitters.odp import OdpEmitter
 from anyconvert.emitters.odt import OdtEmitter
 from anyconvert.emitters.pptx import PptxEmitter
+from anyconvert.emitters.rtf import RtfEmitter
 from anyconvert.emitters.svg import SvgEmitter
 from anyconvert.emitters.txt import TxtEmitter
 from anyconvert.exceptions import (
@@ -46,6 +47,7 @@ SUPPORTED_FORMATS: Set[str] = {
     "html",
     "md",
     "epub",
+    "rtf",
 }
 
 
@@ -134,6 +136,8 @@ def _get_emitter(
         )
     elif fmt == "epub":
         return EpubEmitter()
+    elif fmt == "rtf":
+        return RtfEmitter()
     raise UnsupportedFormatError(
         format_name=output_format,
         supported_formats=sorted(list(SUPPORTED_FORMATS)),

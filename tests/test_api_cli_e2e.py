@@ -317,6 +317,17 @@ class TestEndToEndConversion(unittest.TestCase):
             ch1_xml = zf.read("OEBPS/Text/chapter_1.xhtml").decode("utf-8")
             self.assertIn("Annual Corporate Report 2026", ch1_xml)
 
+    def test_rtf_conversion(self) -> None:
+        """Verify end-to-end PDF to RTF 1.9.1 conversion."""
+        rtf_data = convert(self.pdf_bytes, output_format="rtf")
+        self.assertIsInstance(rtf_data, bytes)
+        rtf_text = rtf_data.decode("ascii")
+        self.assertTrue(rtf_text.startswith("{\\rtf1\\ansi"))
+        self.assertIn("\\fonttbl", rtf_text)
+        self.assertIn("\\colortbl", rtf_text)
+        self.assertIn("\\stylesheet", rtf_text)
+        self.assertIn("Annual Corporate Report 2026", rtf_text)
+
 
 class TestAPIUsageAndEdgeCases(unittest.TestCase):
     """Tests for API convenience methods, argument validation, and error paths."""

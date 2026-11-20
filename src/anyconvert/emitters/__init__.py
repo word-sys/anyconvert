@@ -10,6 +10,7 @@ from anyconvert.emitters.md import MarkdownDialect, MarkdownEmitter
 from anyconvert.emitters.odp import OdpEmitter
 from anyconvert.emitters.odt import OdtEmitter
 from anyconvert.emitters.pptx import PptxEmitter
+from anyconvert.emitters.rtf import RtfEmitter
 from anyconvert.emitters.svg import SvgEmitter
 from anyconvert.emitters.txt import (
     TxtCanvasEmitter,
@@ -28,6 +29,7 @@ __all__ = [
     "PptxEmitter",
     "OdtEmitter",
     "OdpEmitter",
+    "RtfEmitter",
     "SvgEmitter",
     "TxtEmitter",
     "TxtFlowEmitter",
