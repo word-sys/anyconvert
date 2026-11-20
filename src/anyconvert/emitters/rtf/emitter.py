@@ -13,7 +13,12 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Tuple
 
 from anyconvert.common.color import Color
-from anyconvert.emitters.base import BaseEmitter, ConversionMode, pt_to_dxa, pt_to_half_pt
+from anyconvert.emitters.base import BaseEmitter, ConversionMode, pt_to_dxa
+from anyconvert.emitters.rtf.styles import (
+    RtfStyleSheet,
+    build_paragraph_rtf,
+    format_run_rtf,
+)
 from anyconvert.emitters.rtf.unicode import (
     classify_rtf_font_family,
     clean_rtf_font_name,
@@ -25,7 +30,6 @@ from anyconvert.emitters.rtf.unicode import (
 )
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
-    Alignment,
     BlockNode,
     DocumentIR,
     DocumentPage,
@@ -35,16 +39,6 @@ from anyconvert.ir.model import (
     TextRun,
     VectorBlock,
 )
-
-# Standard stylesheet heading sizes in half-points (RTF \fsN)
-_HEADING_HALF_PT: Dict[int, int] = {
-    1: 40,  # 20 pt
-    2: 32,  # 16 pt
-    3: 28,  # 14 pt
-    4: 24,  # 12 pt
-    5: 22,  # 11 pt
-    6: 20,  # 10 pt
-}
 
 
 class RtfFontTable:
@@ -113,35 +107,6 @@ class RtfColorTable:
         """Serialize the \\colortbl group."""
         entries = [f"\\red{r}\\green{g}\\blue{b};" for r, g, b in self._colors]
         return "{\\colortbl ;" + "".join(entries) + "}"
-
-
-class RtfStyleSheet:
-    """RTF 1.9.1 \\stylesheet definition for Normal (\\s0) and Heading 1-6 (\\s1-\\s6)."""
-
-    __slots__ = ("default_font_idx", "body_half_pt")
-
-    def __init__(self, default_font_idx: int = 0, body_half_pt: int = 22) -> None:
-        self.default_font_idx = default_font_idx
-        self.body_half_pt = body_half_pt
-
-    def to_rtf(self) -> str:
-        """Serialize the \\stylesheet group."""
-        f_idx = self.default_font_idx
-        lines: List[str] = [
-            "{\\stylesheet",
-            f"{{\\s0\\ql\\li0\\ri0\\sa120\\sl276\\slmult1\\f{f_idx}\\fs{self.body_half_pt} Normal;}}",
-        ]
-        for lvl in range(1, 7):
-            fs = _HEADING_HALF_PT[lvl]
-            outline = lvl - 1
-            sb = 240 if lvl <= 2 else 180
-            sa = 120 if lvl <= 2 else 80
-            lines.append(
-                f"{{\\s{lvl}\\ql\\sb{sb}\\sa{sa}\\keepn\\outlinelevel{outline}"
-                f"\\b\\f{f_idx}\\fs{fs} heading {lvl};}}"
-            )
-        lines.append("}")
-        return "\n".join(lines)
 
 
 class RtfEmitter(BaseEmitter):
@@ -356,14 +321,16 @@ class RtfEmitter(BaseEmitter):
 
         if page.header and page.header.content:
             hdr_body = "".join(
-                self.render_paragraph(p, font_table, color_table) for p in page.header.content
+                self.render_paragraph(p, font_table, color_table, role="header")
+                for p in page.header.content
             )
             if hdr_body:
                 lines.append(f"{{\\header {hdr_body}}}")
 
         if page.footer and page.footer.content:
             ftr_body = "".join(
-                self.render_paragraph(p, font_table, color_table) for p in page.footer.content
+                self.render_paragraph(p, font_table, color_table, role="footer")
+                for p in page.footer.content
             )
             if ftr_body:
                 lines.append(f"{{\\footer {ftr_body}}}")
@@ -397,79 +364,37 @@ class RtfEmitter(BaseEmitter):
         p: Paragraph,
         font_table: RtfFontTable,
         color_table: RtfColorTable,
+        in_table: bool = False,
+        role: Optional[str] = None,
     ) -> str:
         """Render a Paragraph into an RTF \\pard ... \\par block."""
-        runs_rtf = "".join(self.render_run(r, font_table, color_table) for r in p.runs)
-        if not runs_rtf:
-            return ""
-
-        ctrl: List[str] = ["\\pard"]
-
-        if p.heading_level is not None:
-            lvl = max(1, min(6, p.heading_level.value))
-            ctrl.append(f"\\s{lvl}\\outlinelevel{lvl - 1}\\keepn")
-        else:
-            ctrl.append("\\s0")
-
-        align_map = {
-            Alignment.LEFT: "\\ql",
-            Alignment.CENTER: "\\qc",
-            Alignment.RIGHT: "\\qr",
-            Alignment.JUSTIFIED: "\\qj",
-        }
-        ctrl.append(align_map.get(p.alignment, "\\ql"))
-
-        if p.indent_left > 0.0:
-            ctrl.append(f"\\li{pt_to_dxa(p.indent_left)}")
-        if p.indent_right > 0.0:
-            ctrl.append(f"\\ri{pt_to_dxa(p.indent_right)}")
-        if abs(p.indent_first_line) > 0.0:
-            ctrl.append(f"\\fi{pt_to_dxa(p.indent_first_line)}")
-        if p.space_before > 0.0:
-            ctrl.append(f"\\sb{pt_to_dxa(p.space_before)}")
-        if p.space_after > 0.0:
-            ctrl.append(f"\\sa{pt_to_dxa(p.space_after)}")
-        else:
-            ctrl.append("\\sa120")
-
-        prefix = ""
-        if p.list_marker:
-            indent_twips = pt_to_dxa(18.0 * (max(0, p.list_level) + 1))
-            ctrl.append(f"\\li{indent_twips}\\fi-360")
-            prefix = f"{encode_rtf_unicode(p.list_marker.strip(), codepage=self._active_codepage)}\\tab "
-
-        return "".join(ctrl) + " " + prefix + runs_rtf + "\\par"
+        return build_paragraph_rtf(
+            p=p,
+            render_run_fn=lambda r, override: self.render_run(
+                r, font_table, color_table, override_text=override
+            ),
+            codepage=self._active_codepage,
+            in_table=in_table,
+            role=role,
+        )
 
     def render_run(
         self,
         run: TextRun,
         font_table: RtfFontTable,
         color_table: RtfColorTable,
+        override_text: Optional[str] = None,
     ) -> str:
         """Render an inline TextRun wrapped in an RTF character formatting group."""
-        if not run.text:
-            return ""
-
         f_idx = font_table.get_index(run.font_name)
-        fs = max(2, pt_to_half_pt(run.font_size if run.font_size > 0 else 11.0))
         cf_idx = color_table.register(run.color)
-
-        attrs: List[str] = [f"\\f{f_idx}", f"\\fs{fs}", f"\\cf{cf_idx}"]
-        if run.is_bold:
-            attrs.append("\\b")
-        if run.is_italic:
-            attrs.append("\\i")
-        if run.is_underline:
-            attrs.append("\\ul")
-        if run.is_strikethrough:
-            attrs.append("\\strike")
-        if run.baseline_offset > 0.5:
-            attrs.append("\\super")
-        elif run.baseline_offset < -0.5:
-            attrs.append("\\sub")
-
-        escaped = encode_rtf_unicode(run.text, codepage=self._active_codepage)
-        return "{" + "".join(attrs) + " " + escaped + "}"
+        return format_run_rtf(
+            run=run,
+            font_index=f_idx,
+            color_index=cf_idx,
+            codepage=self._active_codepage,
+            override_text=override_text,
+        )
 
     def render_table(
         self,

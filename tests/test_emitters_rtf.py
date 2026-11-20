@@ -23,11 +23,19 @@ from anyconvert.emitters.rtf import (
     RtfEmitter,
     RtfFontTable,
     RtfStyleSheet,
+    STYLE_FOOTER,
+    STYLE_HEADER,
+    STYLE_LIST,
+    STYLE_NORMAL,
     classify_rtf_font_family,
     clean_rtf_font_name,
     detect_rtf_codepage,
     encode_rtf_unicode,
     escape_rtf_text,
+    format_alignment,
+    format_line_spacing,
+    format_paragraph_controls,
+    resolve_paragraph_style_index,
     resolve_rtf_font,
 )
 from anyconvert.exceptions import SerializationError
@@ -350,4 +358,79 @@ def test_rtf_emitter_turkish_and_multilingual_documents() -> None:
     assert r"\ansicpg1251" in rtf_ru
     assert r"\fcharset204 Arial;" in rtf_ru
     assert r"\u1055\'cf" in rtf_ru
+
+
+def test_rtf_paragraph_styles_headings_indentations_and_lists() -> None:
+    """Verify paragraph control words (\\s1..\\s6, \\ql/\\qc/\\qr/\\qj, \\liN, \\fiN, \\sbN, \\saN, \\slN)."""
+    assert format_alignment(Alignment.LEFT) == r"\ql"
+    assert format_alignment(Alignment.CENTER) == r"\qc"
+    assert format_alignment(Alignment.RIGHT) == r"\qr"
+    assert format_alignment(Alignment.JUSTIFIED) == r"\qj"
+    assert format_line_spacing(1.5) == r"\sl360\slmult1"
+    assert format_line_spacing(2.0) == r"\sl480\slmult1"
+
+    black = Color.black()
+    p_h1 = Paragraph(runs=[TextRun("Title", "Helvetica", 20.0, black)], heading_level=HeadingLevel.H1)
+    p_h3 = Paragraph(runs=[TextRun("Sub", "Helvetica", 14.0, black)], heading_level=HeadingLevel.H3)
+    p_list = Paragraph(runs=[TextRun("- Item", "Helvetica", 11.0, black)], list_marker="-", list_level=1)
+    p_norm = Paragraph(
+        runs=[
+            TextRun(
+                "Indented body",
+                "Helvetica",
+                11.0,
+                black,
+                tracking=1.5,
+                is_strikethrough=True,
+            ),
+            TextRun("2", "Helvetica", 8.0, black, baseline_offset=3.0),
+            TextRun("0", "Helvetica", 8.0, black, baseline_offset=-3.0),
+        ],
+        alignment=Alignment.RIGHT,
+        indent_left=36.0,
+        indent_right=18.0,
+        indent_first_line=18.0,
+        space_before=12.0,
+        space_after=6.0,
+        line_spacing=1.5,
+    )
+
+    assert resolve_paragraph_style_index(p_h1) == 1
+    assert resolve_paragraph_style_index(p_h3) == 3
+    assert resolve_paragraph_style_index(p_list) == STYLE_LIST
+    assert resolve_paragraph_style_index(p_norm) == STYLE_NORMAL
+    assert resolve_paragraph_style_index(p_norm, role="header") == STYLE_HEADER
+    assert resolve_paragraph_style_index(p_norm, role="footer") == STYLE_FOOTER
+
+    ctrl_norm, _ = format_paragraph_controls(p_norm)
+    assert r"\s0" in ctrl_norm
+    assert r"\qr" in ctrl_norm
+    assert r"\li720" in ctrl_norm
+    assert r"\ri360" in ctrl_norm
+    assert r"\fi360" in ctrl_norm
+    assert r"\sb240" in ctrl_norm
+    assert r"\sa120" in ctrl_norm
+    assert r"\sl360\slmult1" in ctrl_norm
+
+    ctrl_list, tab_twips = format_paragraph_controls(p_list)
+    assert r"\s7" in ctrl_list
+    assert ctrl_list.count(r"\li") == 1
+    assert r"\li720" in ctrl_list
+    assert r"\fi-360" in ctrl_list
+    assert f"\\tx{tab_twips}" in ctrl_list
+
+    doc = DocumentIR(pages=[DocumentPage(1, 612.0, 792.0, blocks=[p_h1, p_h3, p_list, p_norm])])
+    rtf_text = assert_valid_rtf(RtfEmitter().emit(doc))
+
+    assert "List Paragraph;" in rtf_text
+    assert "Quote;" in rtf_text
+    assert r"\s1\outlinelevel0\keepn" in rtf_text
+    assert r"\s3\outlinelevel2\keepn" in rtf_text
+    # Duplicate leading '-' in run text should be stripped when list_marker='-'
+    assert r"-\tab {\f0\fs22\cf1 Item}" in rtf_text
+    assert r"\expndtw30" in rtf_text
+    assert r"\strike" in rtf_text
+    assert r"\super" in rtf_text
+    assert r"\sub" in rtf_text
+
 
