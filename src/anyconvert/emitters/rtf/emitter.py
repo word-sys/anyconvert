@@ -14,6 +14,10 @@ from typing import Dict, List, Optional, Tuple
 
 from anyconvert.common.color import Color
 from anyconvert.emitters.base import BaseEmitter, ConversionMode, pt_to_dxa
+from anyconvert.emitters.rtf.pictures import (
+    DEFAULT_MAX_IMAGE_WIDTH_TWIPS,
+    render_rtf_image,
+)
 from anyconvert.emitters.rtf.styles import (
     RtfStyleSheet,
     build_paragraph_rtf,
@@ -373,7 +377,7 @@ class RtfEmitter(BaseEmitter):
                 max_width_twips=max_table_width_twips,
             )
         if isinstance(block, ImageBlock):
-            return self.render_image(block)
+            return self.render_image(block, max_width_twips=max_table_width_twips)
         if isinstance(block, VectorBlock):
             return ""
         return ""
@@ -432,10 +436,19 @@ class RtfEmitter(BaseEmitter):
             max_width_twips=max_width_twips,
         )
 
-    def render_image(self, img: ImageBlock) -> str:
-        """Render an ImageBlock placeholder (binary \\pict embedding added in pictures.py)."""
-        alt = img.alt_text.strip() if img.alt_text else "Image"
-        return f"\\pard\\s0\\qc\\sa120 [{encode_rtf_unicode(alt, codepage=self._active_codepage)}]\\par"
+    def render_image(
+        self,
+        img: ImageBlock,
+        max_width_twips: int = DEFAULT_MAX_IMAGE_WIDTH_TWIPS,
+        in_table: bool = False,
+    ) -> str:
+        """Render an ImageBlock as an embedded RTF \\pict\\pngblip or \\jpegblip group."""
+        return render_rtf_image(
+            img=img,
+            codepage=self._active_codepage,
+            max_width_twips=max_width_twips,
+            in_table=in_table,
+        )
 
 
 __all__ = [

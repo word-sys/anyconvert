@@ -7,6 +7,15 @@ from anyconvert.emitters.rtf.emitter import (
     RtfEmitter,
     RtfFontTable,
 )
+from anyconvert.emitters.rtf.pictures import (
+    DEFAULT_MAX_IMAGE_WIDTH_TWIPS,
+    HEX_LINE_WIDTH,
+    build_rtf_pict_group,
+    detect_rtf_blip_type,
+    encode_hex_lines,
+    parse_image_pixel_dimensions,
+    render_rtf_image,
+)
 from anyconvert.emitters.rtf.styles import (
     STYLE_FOOTER,
     STYLE_HEADER,
@@ -72,6 +81,13 @@ __all__ = [
     "format_cell_borders",
     "compute_rtf_col_widths",
     "render_rtf_table",
+    "DEFAULT_MAX_IMAGE_WIDTH_TWIPS",
+    "HEX_LINE_WIDTH",
+    "detect_rtf_blip_type",
+    "parse_image_pixel_dimensions",
+    "encode_hex_lines",
+    "build_rtf_pict_group",
+    "render_rtf_image",
     "RtfCodePageProfile",
     "CP_WESTERN",
     "CP_CENTRAL_EUR",

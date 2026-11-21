@@ -27,19 +27,24 @@ from anyconvert.emitters.rtf import (
     STYLE_HEADER,
     STYLE_LIST,
     STYLE_NORMAL,
+    build_rtf_pict_group,
     classify_rtf_font_family,
     clean_rtf_font_name,
+    compute_rtf_col_widths,
+    detect_rtf_blip_type,
     detect_rtf_codepage,
+    encode_hex_lines,
     encode_rtf_unicode,
     escape_rtf_text,
     format_alignment,
     format_line_spacing,
     format_paragraph_controls,
-    compute_rtf_col_widths,
+    parse_image_pixel_dimensions,
     resolve_paragraph_style_index,
     resolve_rtf_font,
 )
 from anyconvert.exceptions import SerializationError
+from anyconvert.utils.png import encode_rgb_png
 from anyconvert.ir.model import (
     Alignment,
     BlockNode,
@@ -506,6 +511,71 @@ def test_rtf_table_matrix_borders_shading_and_spans() -> None:
     scaled = compute_rtf_col_widths(wide_tbl, num_cols=2, max_width_twips=9360)
     assert sum(scaled) <= 9360
     assert scaled[0] == scaled[1]
+
+
+def test_rtf_embedded_png_and_jpeg_pictures() -> None:
+    """Verify \\pict\\pngblip and \\pict\\jpegblip binary hex embedding, dimensions, and clamping."""
+    png_bytes = encode_rgb_png(4, 2, bytes([255, 0, 0] * 8))
+    jpeg_bytes = (
+        b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+        b"\xff\xc0\x00\x0b\x08\x00\x08\x00\x10\x01\x01\x11\x00\xff\xd9"
+    )
+
+    assert detect_rtf_blip_type(png_bytes) == r"\pngblip"
+    assert detect_rtf_blip_type(jpeg_bytes) == r"\jpegblip"
+    assert detect_rtf_blip_type(b"RIFF\x10\x00\x00\x00WEBPVP8 ") is None
+
+    assert parse_image_pixel_dimensions(png_bytes) == (4, 2)
+    assert parse_image_pixel_dimensions(jpeg_bytes) == (16, 8)
+
+    wrapped = encode_hex_lines(b"\xab\xcd" * 50, line_width=20)
+    assert all(len(ln) <= 20 for ln in wrapped.splitlines())
+    assert bytes.fromhex(wrapped.replace("\n", "")) == b"\xab\xcd" * 50
+
+    img_png = ImageBlock(
+        image_bytes=png_bytes,
+        bbox=BoundingBox(0, 0, 120.0, 60.0),
+        alt_text="PNG Chart",
+        format="png",
+    )
+    img_jpeg = ImageBlock(
+        image_bytes=jpeg_bytes,
+        bbox=BoundingBox(0, 0, 800.0, 400.0),  # Intentionally wider than page printable width
+        alt_text="Wide JPEG",
+        format="jpeg",
+    )
+    img_unsupported = ImageBlock(
+        image_bytes=b"RIFF\x10\x00\x00\x00WEBPVP8 ",
+        bbox=BoundingBox(0, 0, 100.0, 50.0),
+        alt_text="WebP Fallback",
+        format="webp",
+    )
+
+    # Direct pict group verification
+    png_pict = build_rtf_pict_group(img_png)
+    assert png_pict is not None
+    assert r"\pict\pngblip\picw4\pich2\picwgoal2400\pichgoal1200" in png_pict
+    # Verify embedded hex decodes back to exact PNG bytes
+    png_hex_lines = png_pict.splitlines()[1:-1]
+    assert bytes.fromhex("".join(png_hex_lines)) == png_bytes
+
+    jpeg_pict = build_rtf_pict_group(img_jpeg, max_width_twips=9360)
+    assert jpeg_pict is not None
+    assert r"\pict\jpegblip\picw16\pich8\picwgoal9360\pichgoal4680" in jpeg_pict
+    jpeg_hex_lines = jpeg_pict.splitlines()[1:-1]
+    assert bytes.fromhex("".join(jpeg_hex_lines)) == jpeg_bytes
+
+    assert build_rtf_pict_group(img_unsupported) is None
+
+    # Full document emission check
+    doc = DocumentIR(
+        pages=[DocumentPage(1, 612.0, 792.0, blocks=[img_png, img_jpeg, img_unsupported])]
+    )
+    rtf_text = assert_valid_rtf(RtfEmitter().emit(doc))
+    assert r"\pict\pngblip" in rtf_text
+    assert r"\pict\jpegblip" in rtf_text
+    assert "[WebP Fallback]" in rtf_text
+
 
 
 
