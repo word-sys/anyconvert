@@ -305,6 +305,7 @@ class LatexEmitter(BaseEmitter):
         "render_headers_footers",
         "emit_pagebreaks",
         "emit_maketitle",
+        "enable_math_heuristics",
         "image_dir",
         "image_link_prefix",
         "extracted_images",
@@ -321,6 +322,7 @@ class LatexEmitter(BaseEmitter):
         render_headers_footers: bool = True,
         emit_pagebreaks: bool = True,
         emit_maketitle: bool = False,
+        enable_math_heuristics: bool = True,
         image_dir: Optional[Union[str, pathlib.Path]] = None,
         image_link_prefix: Optional[str] = None,
     ) -> None:
@@ -329,6 +331,7 @@ class LatexEmitter(BaseEmitter):
         self.render_headers_footers: bool = render_headers_footers
         self.emit_pagebreaks: bool = emit_pagebreaks
         self.emit_maketitle: bool = emit_maketitle
+        self.enable_math_heuristics: bool = enable_math_heuristics
         self.image_dir: Optional[pathlib.Path] = (
             pathlib.Path(image_dir) if image_dir is not None else None
         )
@@ -685,6 +688,21 @@ class LatexEmitter(BaseEmitter):
         suppress_bold: bool = False,
     ) -> str:
         """Render all inline TextRuns of a Paragraph."""
+        if self.enable_math_heuristics:
+            from anyconvert.emitters.latex.math import render_latex_math_runs
+
+            rendered, used_math = render_latex_math_runs(
+                p.runs,
+                render_run_fn=lambda r, ov, sb: self.render_run(
+                    r, override_text=ov, suppress_bold=sb
+                ),
+                first_run_override=first_run_override,
+                suppress_bold=suppress_bold,
+            )
+            if used_math:
+                self._uses_math = True
+            return rendered
+
         parts: List[str] = []
         override_applied = False
         for r in p.runs:

@@ -13,8 +13,13 @@ from anyconvert.common.color import Color
 from anyconvert.common.geometry import BoundingBox
 from anyconvert.emitters.latex import (
     LatexEmitter,
+    classify_math_font,
+    decode_math_font_text,
+    detect_script_kind,
     escape_latex_text,
     escape_latex_url,
+    is_math_font,
+    translate_math_text_to_latex,
 )
 from anyconvert.emitters.typst import (
     TypstEmitter,
@@ -22,6 +27,7 @@ from anyconvert.emitters.typst import (
     escape_typst_markup,
     escape_typst_string,
     render_typst_table,
+    translate_math_text_to_typst,
 )
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
@@ -386,8 +392,9 @@ def test_latex_emitter_preamble_blocks_lists_code_and_tables(tmp_path: pathlib.P
                 TextRun("Italic ", "Times New Roman", 11.0, black, is_italic=True),
                 TextRun("Under ", "Times New Roman", 11.0, black, is_underline=True),
                 TextRun("Strike ", "Times New Roman", 11.0, black, is_strikethrough=True),
-                TextRun("x", "Times New Roman", 11.0, black),
+                TextRun("Note", "Times New Roman", 11.0, black),
                 TextRun("2", "Times New Roman", 8.0, black, baseline_offset=3.0),
+                TextRun(" ", "Times New Roman", 11.0, black),
                 TextRun("i ", "Times New Roman", 8.0, black, baseline_offset=-3.0),
                 TextRun("fn()", "Courier New", 10.0, black),
                 TextRun(" ", "Times New Roman", 11.0, black),
@@ -607,5 +614,185 @@ def test_latex_api_and_cli_integration(tmp_path: pathlib.Path) -> None:
     api_tex = tmp_path / "api_out.tex"
     convert(in_pdf, output_format="latex", output_path=api_tex)
     assert api_tex.is_file()
+
+
+def test_math_font_classification_decoding_and_baseline_detection() -> None:
+    """Verify Symbol/CMSY/CMMI/CMEX/MSBM decoding and explicit/geometric script detection."""
+    black = Color.black()
+
+    assert classify_math_font("Symbol") == "symbol"
+    assert classify_math_font("ABCDEF+CMSY10") == "cmsy"
+    assert classify_math_font("XYZABC+CMMI10") == "cmmi"
+    assert classify_math_font("CMEX10") == "cmex"
+    assert classify_math_font("MSBM10") == "msbm"
+    assert classify_math_font("Cambria Math") == "unicode_math"
+    assert is_math_font("Symbol")
+    assert not is_math_font("Times New Roman")
+    assert not is_math_font("Helvetica")
+
+    # Adobe Symbol decoding
+    assert decode_math_font_text("abgS\xa3\xa5\xb1\xce", "Symbol") == "αβγΣ≤∞±∈"
+    # CMSY decoding
+    assert decode_math_font_text("\x02\x14\x31\x32\x38", "ABCDEF+CMSY10") == "×≤∞∈∀"
+    # CMMI and CMEX decoding
+    assert decode_math_font_text("\x0b\x19", "CMMI10") == "απ"
+    assert decode_math_font_text("\x50", "CMEX10") == "∑"
+
+    # Font-aware LaTeX & Typst symbol translation
+    assert translate_math_text_to_latex("L", "CMSY10") == r"\mathcal{L}"
+    assert translate_math_text_to_latex("R", "MSBM10") == r"\mathbb{R}"
+    assert translate_math_text_to_typst("L", "CMSY10") == "cal(L)"
+    assert translate_math_text_to_typst("R", "MSBM10") == "RR"
+
+    # Explicit baseline_offset detection
+    base = TextRun("x", "Times New Roman", 11.0, black, bbox=BoundingBox(100.0, 200.0, 108.0, 212.0))
+    sup_explicit = TextRun("2", "Times New Roman", 8.0, black, baseline_offset=3.0)
+    sub_explicit = TextRun("i", "Times New Roman", 8.0, black, baseline_offset=-3.0)
+    assert detect_script_kind(sup_explicit, base) == "sup"
+    assert detect_script_kind(sub_explicit, base) == "sub"
+
+    # Geometric bounding-box detection (baseline_offset == 0.0, top-down doc Y)
+    sup_geom = TextRun("2", "Times New Roman", 7.5, black, bbox=BoundingBox(108.5, 197.0, 113.0, 205.0))
+    sub_geom = TextRun("i", "Times New Roman", 7.5, black, bbox=BoundingBox(108.5, 207.0, 113.0, 215.5))
+    normal_next = TextRun("y", "Times New Roman", 11.0, black, bbox=BoundingBox(114.0, 200.0, 122.0, 212.0))
+    assert detect_script_kind(sup_geom, base) == "sup"
+    assert detect_script_kind(sub_geom, base) == "sub"
+    assert detect_script_kind(normal_next, base) is None
+
+
+def test_latex_and_typst_math_heuristics_end_to_end() -> None:
+    """Verify inline math extraction for scripts, Symbol/CMSY/MSBM fonts, and Unicode symbols."""
+    black = Color.black()
+
+    # 1. Explicit baseline shifts: For any x^2 and x_i^{n+1}
+    p_scripts = Paragraph(
+        runs=[
+            TextRun("For any x", "Times New Roman", 11.0, black),
+            TextRun("2", "Times New Roman", 8.0, black, baseline_offset=3.0),
+            TextRun(" and x", "Times New Roman", 11.0, black),
+            TextRun("i", "Times New Roman", 8.0, black, baseline_offset=-3.0),
+            TextRun("n+1", "Times New Roman", 8.0, black, baseline_offset=3.0),
+            TextRun(".", "Times New Roman", 11.0, black),
+        ]
+    )
+
+    # 2. Geometric bbox baseline shift (zero baseline_offset): E = mc^2
+    p_geom = Paragraph(
+        runs=[
+            TextRun("E = mc", "Times New Roman", 12.0, black, bbox=BoundingBox(72.0, 100.0, 116.0, 113.0)),
+            TextRun("2", "Times New Roman", 8.0, black, bbox=BoundingBox(116.5, 97.0, 122.0, 105.0)),
+        ]
+    )
+
+    # 3. Legacy Symbol, CMSY, and MSBM math fonts merged across connectors
+    p_fonts = Paragraph(
+        runs=[
+            TextRun("a", "Symbol", 11.0, black),
+            TextRun(" + ", "Times New Roman", 11.0, black),
+            TextRun("b", "Symbol", 11.0, black),
+            TextRun(" ", "Times New Roman", 11.0, black),
+            TextRun("\x14", "ABCDEF+CMSY10", 11.0, black),
+            TextRun(" ", "Times New Roman", 11.0, black),
+            TextRun("g", "Symbol", 11.0, black),
+            TextRun(" with ", "Times New Roman", 11.0, black),
+            TextRun("L", "CMSY10", 11.0, black),
+            TextRun(" in ", "Times New Roman", 11.0, black),
+            TextRun("R", "MSBM10", 11.0, black),
+        ]
+    )
+
+    # 4. Inline Unicode Greek/math symbols & superscripts in standard font
+    p_unicode = Paragraph(
+        runs=[TextRun("We observe α ≤ β and σ² → 0 for all x ∈ ℝ.", "Times New Roman", 11.0, black)]
+    )
+
+    # 5. Prose footnotes and ordinals must NOT be misclassified as math
+    p_prose = Paragraph(
+        runs=[
+            TextRun("The 1", "Times New Roman", 11.0, black),
+            TextRun("st", "Times New Roman", 8.0, black, baseline_offset=3.0),
+            TextRun(" results", "Times New Roman", 11.0, black),
+            TextRun("1", "Times New Roman", 8.0, black, baseline_offset=3.0),
+            TextRun(" hold.", "Times New Roman", 11.0, black),
+        ]
+    )
+
+    doc = DocumentIR(
+        pages=[DocumentPage(1, 612.0, 792.0, blocks=[p_scripts, p_geom, p_fonts, p_unicode, p_prose])]
+    )
+
+    # LaTeX verification
+    tex = LatexEmitter().render(doc)
+    assert r"\usepackage{amsmath,amssymb}" in tex
+    assert "For any $x^2$ and $x_i^{n+1}$." in tex
+    assert "$E = mc^2$" in tex
+    assert r"$\alpha + \beta \le \gamma$ with $\mathcal{L}$ in $\mathbb{R}$" in tex
+    assert r"We observe $\alpha \le \beta$ and $\sigma^2 \rightarrow 0$ for all $x \in \mathbb{R}$." in tex
+    assert r"The 1\textsuperscript{st} results\textsuperscript{1} hold." in tex
+
+    # Plain prose document without math should NOT pull in amsmath unnecessarily
+    plain_doc = DocumentIR(pages=[DocumentPage(1, 612.0, 792.0, blocks=[p_prose])])
+    plain_tex = LatexEmitter().render(plain_doc)
+    assert r"\usepackage{amsmath,amssymb}" not in plain_tex
+
+    # Opt-out flag disables math heuristics cleanly
+    tex_disabled = LatexEmitter(enable_math_heuristics=False).render(doc)
+    assert r"\textsuperscript{2}" in tex_disabled
+
+    # Typst verification
+    typ = TypstEmitter().render(doc)
+    assert "For any $x^2$ and $x_i^(n+1)$." in typ
+    assert "$E = mc^2$" in typ
+    assert "$alpha + beta <= gamma$ with $cal(L)$ in $RR$" in typ
+    assert "We observe $alpha <= beta$ and $sigma^2 -> 0$ for all $x in RR$." in typ
+    assert "The 1#super[st] results#super[1] hold." in typ
+
+    typ_disabled = TypstEmitter(enable_math_heuristics=False).render(doc)
+    assert "#super[2]" in typ_disabled
+
+
+def test_pdf_symbol_font_end_to_end_math_extraction() -> None:
+    """Verify a real PDF using /BaseFont /Symbol extracts math notation in LaTeX and Typst."""
+    stream = (
+        b"BT /F1 11 Tf 72 700 Td (Let ) Tj "
+        b"/F2 11 Tf (a) Tj "
+        b"/F1 11 Tf ( + ) Tj "
+        b"/F2 11 Tf (b) Tj ET"
+    )
+    objs: List[bytes] = [
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        b"2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        (
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Contents 4 0 R /Resources << /Font << "
+            b"/F1 << /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >> "
+            b"/F2 << /Type /Font /Subtype /Type1 /BaseFont /Symbol >> "
+            b">> >> >>\nendobj\n"
+        ),
+        f"4 0 obj\n<< /Length {len(stream)} >>\nstream\n".encode("ascii") + stream + b"\nendstream\nendobj\n",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offs = [0]
+    for obj in objs:
+        offs.append(len(out))
+        out.extend(obj)
+    xref_pos = len(out)
+    out.extend(f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode("ascii"))
+    for o in offs[1:]:
+        out.extend(f"{o:010d} 00000 n \n".encode("ascii"))
+    out.extend(
+        f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode("ascii")
+    )
+    pdf_bytes = bytes(out)
+
+    tex_out = convert_bytes(pdf_bytes, output_format="latex").decode("utf-8")
+    assert r"\usepackage{amsmath,amssymb}" in tex_out
+    assert r"\alpha" in tex_out
+    assert r"\beta" in tex_out
+
+    typ_out = convert_bytes(pdf_bytes, output_format="typst").decode("utf-8")
+    assert "$alpha" in typ_out or "alpha" in typ_out
+    assert "beta$" in typ_out or "beta" in typ_out
+
 
 

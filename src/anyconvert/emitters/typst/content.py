@@ -148,6 +148,7 @@ def is_list_paragraph(p: Paragraph) -> Tuple[bool, str]:
 def render_typst_paragraph(
     p: Paragraph,
     render_run_fn: Optional[Callable[[TextRun, Optional[str], bool], str]] = None,
+    enable_math_heuristics: bool = True,
 ) -> str:
     """Render a Paragraph into a Typst heading (=, ==), list item (- / +), code block, or prose."""
     run_renderer = render_run_fn or render_typst_run
@@ -166,14 +167,27 @@ def render_typst_paragraph(
         r.is_bold for r in p.runs if r.text.strip()
     )
 
-    parts: List[str] = []
-    for idx, run in enumerate(p.runs):
-        override: Optional[str] = None
-        if idx == 0 and strip_leading_marker:
-            override = run.text.lstrip()[len(marker) :].lstrip()
-        parts.append(run_renderer(run, override, all_runs_bold))
+    first_override: Optional[str] = None
+    if strip_leading_marker and p.runs:
+        first_override = p.runs[0].text.lstrip()[len(marker) :].lstrip()
 
-    body = "".join(parts).strip()
+    if enable_math_heuristics:
+        from anyconvert.emitters.typst.math import render_typst_math_runs
+
+        rendered_body, _ = render_typst_math_runs(
+            p.runs,
+            render_run_fn=run_renderer,
+            first_run_override=first_override,
+            suppress_bold=all_runs_bold,
+        )
+        body = rendered_body.strip()
+    else:
+        parts: List[str] = []
+        for idx, run in enumerate(p.runs):
+            override: Optional[str] = first_override if idx == 0 else None
+            parts.append(run_renderer(run, override, all_runs_bold))
+        body = "".join(parts).strip()
+
     if not body:
         return ""
 
@@ -250,12 +264,26 @@ def render_typst_page_blocks(
 def _format_cell_body(
     cell: TableCell,
     render_run_fn: Callable[[TextRun], str],
+    enable_math_heuristics: bool = True,
 ) -> str:
     """Render inner Paragraphs of a TableCell into Typst content."""
     para_strs: List[str] = []
     for sub in cell.content:
         if isinstance(sub, Paragraph):
-            txt = "".join(render_run_fn(r) for r in sub.runs).strip()
+            if enable_math_heuristics:
+                from anyconvert.emitters.typst.math import render_typst_math_runs
+
+                txt, _ = render_typst_math_runs(
+                    sub.runs,
+                    render_run_fn=lambda r, ov, sb: (
+                        render_typst_run(r, override_text=ov, suppress_bold=sb)
+                        if ov is not None or sb
+                        else render_run_fn(r)
+                    ),
+                )
+                txt = txt.strip()
+            else:
+                txt = "".join(render_run_fn(r) for r in sub.runs).strip()
             if txt:
                 para_strs.append(txt)
     return " \\\n    ".join(para_strs)
@@ -335,6 +363,7 @@ def _detect_typst_col_alignments(
 def render_typst_table(
     table: Table,
     render_run_fn: Optional[Callable[[TextRun], str]] = None,
+    enable_math_heuristics: bool = True,
 ) -> str:
     """Translate a Table IR node into an idiomatic Typst #table(...) call."""
     if not table.rows:
@@ -367,7 +396,11 @@ def render_typst_table(
                 for dc in range(c_span):
                     occupancy[tr][c_idx + dc] = True
 
-            body_str = _format_cell_body(cell, run_fn)
+            body_str = _format_cell_body(
+                cell,
+                run_fn,
+                enable_math_heuristics=enable_math_heuristics,
+            )
             cell_args: List[str] = []
             if c_span > 1:
                 cell_args.append(f"colspan: {c_span}")

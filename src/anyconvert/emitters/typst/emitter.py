@@ -124,6 +124,7 @@ class TypstEmitter(BaseEmitter):
         "language",
         "render_headers_footers",
         "emit_pagebreaks",
+        "enable_math_heuristics",
         "image_dir",
         "extracted_images",
     )
@@ -133,11 +134,13 @@ class TypstEmitter(BaseEmitter):
         language: str = "en",
         render_headers_footers: bool = True,
         emit_pagebreaks: bool = True,
+        enable_math_heuristics: bool = True,
         image_dir: Optional[Union[str, pathlib.Path]] = None,
     ) -> None:
         self.language: str = language.strip().replace("_", "-") or "en"
         self.render_headers_footers: bool = render_headers_footers
         self.emit_pagebreaks: bool = emit_pagebreaks
+        self.enable_math_heuristics: bool = enable_math_heuristics
         self.image_dir: Optional[pathlib.Path] = (
             pathlib.Path(image_dir) if image_dir is not None else None
         )
@@ -335,6 +338,7 @@ class TypstEmitter(BaseEmitter):
             render_run_fn=lambda r, override, sup_bold: self.render_run(
                 r, override_text=override, suppress_bold=sup_bold
             ),
+            enable_math_heuristics=self.enable_math_heuristics,
         )
 
     def render_run(
@@ -359,6 +363,7 @@ class TypstEmitter(BaseEmitter):
         return render_typst_table(
             table,
             render_run_fn=lambda r: self.render_run(r),
+            enable_math_heuristics=self.enable_math_heuristics,
         )
 
     def render_image(self, img: ImageBlock, image_counter: List[int]) -> str:
