@@ -16,6 +16,7 @@ from anyconvert.emitters.typst import (
     clean_typst_font_name,
     escape_typst_markup,
     escape_typst_string,
+    render_typst_table,
 )
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
@@ -172,7 +173,9 @@ def test_typst_emitter_preamble_pages_and_blocks(tmp_path: pathlib.Path) -> None
     assert "#set text(" in typ_text
     assert '"Times New Roman"' in typ_text
     assert "size: 11pt," in typ_text
-    assert "= #strong[Introduction]" in typ_text
+    assert "= Introduction" in typ_text
+    assert "*Strong*" in typ_text
+    assert "_Italic_" in typ_text
     assert "== Landscape Appendix" in typ_text
     assert "width: 792pt," in typ_text
     assert "height: 612pt," in typ_text
@@ -226,3 +229,105 @@ def test_typst_api_and_cli_integration(tmp_path: pathlib.Path) -> None:
     api_typ = tmp_path / "api_out.typ"
     convert(in_pdf, output_format="typst", output_path=api_typ)
     assert api_typ.is_file()
+
+
+def test_typst_content_inline_formatting_lists_and_code_blocks() -> None:
+    """Verify idiomatic *bold*, _italic_, *_both_*, links, nested lists, and grouped code fences."""
+    black = Color.black()
+    red = Color(200, 10, 20)
+
+    p_inline = Paragraph(
+        runs=[
+            TextRun("Plain ", "Libertinus Serif", 11.0, black),
+            TextRun("Bold ", "Libertinus Serif", 11.0, black, is_bold=True),
+            TextRun("Italic ", "Libertinus Serif", 11.0, black, is_italic=True),
+            TextRun("Both ", "Libertinus Serif", 11.0, black, is_bold=True, is_italic=True),
+            TextRun("Under ", "Libertinus Serif", 11.0, black, is_underline=True),
+            TextRun("Strike ", "Libertinus Serif", 11.0, red, is_strikethrough=True),
+            TextRun("2", "Libertinus Serif", 8.0, black, baseline_offset=3.0),
+            TextRun("n ", "Libertinus Serif", 8.0, black, baseline_offset=-3.0),
+            TextRun("https://typst.app", "Libertinus Serif", 11.0, black),
+        ]
+    )
+
+    p_ul1 = Paragraph(runs=[TextRun("- Top item", "Libertinus Serif", 11.0, black)], list_marker="-", list_level=0)
+    p_ul2 = Paragraph(runs=[TextRun("Nested item", "Libertinus Serif", 11.0, black)], list_marker="•", list_level=1)
+    p_ol1 = Paragraph(runs=[TextRun("1. Step one", "Libertinus Serif", 11.0, black)], list_marker="1.", list_level=0)
+
+    p_code1 = Paragraph(runs=[TextRun("def solve(x):", "Courier New", 10.0, black)])
+    p_code2 = Paragraph(runs=[TextRun("    return x + 1", "Courier New", 10.0, black)])
+    p_sep = Paragraph(runs=[TextRun("Intervening prose.", "Libertinus Serif", 11.0, black)])
+    p_code_bt = Paragraph(runs=[TextRun("Use ```typst raw fence", "Consolas", 10.0, black)])
+
+    doc = DocumentIR(
+        pages=[
+            DocumentPage(
+                1,
+                612.0,
+                792.0,
+                blocks=[p_inline, p_ul1, p_ul2, p_ol1, p_code1, p_code2, p_sep, p_code_bt],
+            )
+        ]
+    )
+    typ_text = TypstEmitter().render(doc)
+
+    assert "*Bold*" in typ_text
+    assert "_Italic_" in typ_text
+    assert "*_Both_*" in typ_text
+    assert "#underline[Under]" in typ_text
+    assert '#text(fill: rgb("#C80A14"))[#strike[Strike]]' in typ_text
+    assert "#super[2]" in typ_text
+    assert "#sub[n]" in typ_text
+    assert '#link("https://typst.app")' in typ_text
+
+    # Contiguous list items joined with single newline and deduplicated markers
+    assert "- Top item\n  - Nested item\n+ Step one" in typ_text
+
+    # Consecutive monospace paragraphs grouped into one raw block
+    assert "```\ndef solve(x):\n    return x + 1\n```" in typ_text
+    # Backtick fence expansion
+    assert "````\nUse ```typst raw fence\n````" in typ_text
+
+
+def test_typst_native_table_spans_alignments_and_headers() -> None:
+    """Verify #table(columns: ..., align: ..., table.header(...), table.cell(colspan/rowspan/fill))."""
+    black = Color.black()
+    header_fill = Color(240, 244, 248)
+
+    h1 = TableCell(
+        content=[Paragraph(runs=[TextRun("Dataset", "H", 10.0, black)])],
+        col_span=2,
+        background_color=header_fill,
+    )
+    h2 = TableCell(content=[Paragraph(runs=[TextRun("Accuracy", "H", 10.0, black)])])
+    row_hdr = TableRow(cells=[h1, h2], is_header=True)
+
+    c_rowspan = TableCell(
+        content=[Paragraph(runs=[TextRun("Benchmark A", "H", 10.0, black)])],
+        row_span=2,
+    )
+    c_sub1 = TableCell(
+        content=[Paragraph(runs=[TextRun("Fold 1", "H", 10.0, black)], alignment=Alignment.CENTER)]
+    )
+    c_num1 = TableCell(content=[Paragraph(runs=[TextRun("98.4%", "H", 10.0, black)])])
+    row_1 = TableRow(cells=[c_rowspan, c_sub1, c_num1])
+
+    # Row 2 has only 2 cells because col 0 is occupied by c_rowspan (row_span=2)
+    c_sub2 = TableCell(
+        content=[Paragraph(runs=[TextRun("Fold 2", "H", 10.0, black)], alignment=Alignment.CENTER)]
+    )
+    c_num2 = TableCell(content=[Paragraph(runs=[TextRun("99.1%", "H", 10.0, black)])])
+    row_2 = TableRow(cells=[c_sub2, c_num2])
+
+    tbl = Table(
+        rows=[row_hdr, row_1, row_2],
+        col_widths=[140.0, 80.0, 90.0],
+    )
+
+    tbl_typ = render_typst_table(tbl)
+    assert "columns: (140pt, 80pt, 90pt)," in tbl_typ
+    assert "align: (left, center, right)," in tbl_typ
+    assert 'table.header(table.cell(colspan: 2, fill: rgb("#F0F4F8"))[Dataset], [Accuracy]),' in tbl_typ
+    assert "table.cell(rowspan: 2)[Benchmark A], [Fold 1], [98.4%]," in tbl_typ
+    assert "  [Fold 2], [99.1%]," in tbl_typ
+

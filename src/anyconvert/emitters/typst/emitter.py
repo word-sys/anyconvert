@@ -15,10 +15,9 @@ import pathlib
 import re
 from typing import Dict, List, Optional, Tuple, Union
 
-from anyconvert.emitters.base import BaseEmitter, ConversionMode, color_to_hex
+from anyconvert.emitters.base import BaseEmitter, ConversionMode
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
-    Alignment,
     BlockNode,
     DocumentIR,
     DocumentPage,
@@ -31,16 +30,6 @@ from anyconvert.ir.model import (
 
 # PDF embedded font subset tag pattern (e.g. "ABCDEF+TimesNewRoman-Bold")
 _SUBSET_PREFIX_RE = re.compile(r"^[A-Z]{6}\+")
-
-_MONOSPACE_HINTS = (
-    "mono",
-    "courier",
-    "consolas",
-    "menlo",
-    "monaco",
-    "terminal",
-    "sourcecode",
-)
 
 # Characters that carry special meaning in Typst markup mode
 _TYPST_ESCAPE_CHARS = frozenset("\\#*_`$<>\x40[]=~")
@@ -320,15 +309,10 @@ class TypstEmitter(BaseEmitter):
         image_counter: Optional[List[int]] = None,
     ) -> str:
         """Render all body blocks of a single DocumentPage into Typst markup."""
+        from anyconvert.emitters.typst.content import render_typst_page_blocks
+
         counter = image_counter if image_counter is not None else [1]
-        rendered_blocks: List[str] = []
-
-        for block in page.blocks:
-            b_str = self.render_block(block, counter)
-            if b_str:
-                rendered_blocks.append(b_str)
-
-        return "\n\n".join(rendered_blocks)
+        return render_typst_page_blocks(page.blocks, self.render_block, counter)
 
     def render_block(self, block: BlockNode, image_counter: List[int]) -> str:
         """Render a single BlockNode into Typst markup."""
@@ -343,85 +327,39 @@ class TypstEmitter(BaseEmitter):
         return ""
 
     def render_paragraph(self, p: Paragraph) -> str:
-        """Render a Paragraph node into Typst heading, list item, or prose block."""
-        body = "".join(self.render_run(r) for r in p.runs).strip()
-        if not body:
-            return ""
+        """Render a Paragraph node into Typst heading, list item, code block, or prose."""
+        from anyconvert.emitters.typst.content import render_typst_paragraph
 
-        if p.heading_level is not None:
-            lvl = max(1, min(6, p.heading_level.value))
-            return f"{'=' * lvl} {body}"
+        return render_typst_paragraph(
+            p,
+            render_run_fn=lambda r, override, sup_bold: self.render_run(
+                r, override_text=override, suppress_bold=sup_bold
+            ),
+        )
 
-        if p.list_marker:
-            indent = "  " * max(0, p.list_level)
-            marker = p.list_marker.strip()
-            if marker.endswith(".") or marker.endswith(")") or marker.isdigit():
-                return f"{indent}+ {body}"
-            return f"{indent}- {body}"
-
-        if p.alignment == Alignment.CENTER:
-            return f"#align(center)[{body}]"
-        if p.alignment == Alignment.RIGHT:
-            return f"#align(right)[{body}]"
-        if p.alignment == Alignment.JUSTIFIED:
-            return f"#par(justify: true)[{body}]"
-
-        return body
-
-    def render_run(self, run: TextRun) -> str:
+    def render_run(
+        self,
+        run: TextRun,
+        override_text: Optional[str] = None,
+        suppress_bold: bool = False,
+    ) -> str:
         """Render an inline TextRun into idiomatic Typst markup."""
-        if not run.text:
-            return ""
+        from anyconvert.emitters.typst.content import render_typst_run
 
-        fn_low = run.font_name.lower().replace("-", "").replace("_", "").replace(" ", "")
-        is_mono = any(k in fn_low for k in _MONOSPACE_HINTS)
-
-        if is_mono:
-            raw_code = run.text.replace("`", "\\`")
-            content = f"`{raw_code}`"
-        else:
-            content = escape_typst_markup(run.text)
-
-        if run.is_bold:
-            content = f"#strong[{content}]"
-        if run.is_italic:
-            content = f"#emph[{content}]"
-        if run.is_underline:
-            content = f"#underline[{content}]"
-        if run.is_strikethrough:
-            content = f"#strike[{content}]"
-        if run.baseline_offset > 0.5:
-            content = f"#super[{content}]"
-        elif run.baseline_offset < -0.5:
-            content = f"#sub[{content}]"
-
-        if run.color and (run.color.r, run.color.g, run.color.b) != (0, 0, 0):
-            hex_rgb = color_to_hex(run.color)
-            content = f'#text(fill: rgb("#{hex_rgb}"))[{content}]'
-
-        return content
+        return render_typst_run(
+            run,
+            override_text=override_text,
+            suppress_bold=suppress_bold,
+        )
 
     def render_table(self, table: Table) -> str:
-        """Render a basic Typst #table(...) grid (extended in content.py)."""
-        if not table.rows:
-            return ""
-        num_cols = max((len(r.cells) for r in table.rows), default=0)
-        if num_cols == 0:
-            return ""
+        """Render a Table node into an idiomatic Typst #table(...) block."""
+        from anyconvert.emitters.typst.content import render_typst_table
 
-        cells: List[str] = []
-        for row in table.rows:
-            for cell in row.cells:
-                txt = " ".join(
-                    "".join(self.render_run(r) for r in b.runs).strip()
-                    for b in cell.content
-                    if isinstance(b, Paragraph)
-                ).strip()
-                cells.append(f"[{txt}]")
-            while len(cells) % num_cols != 0:
-                cells.append("[]")
-
-        return f"#table(\n  columns: {num_cols},\n  " + ", ".join(cells) + ",\n)"
+        return render_typst_table(
+            table,
+            render_run_fn=lambda r: self.render_run(r),
+        )
 
     def render_image(self, img: ImageBlock, image_counter: List[int]) -> str:
         """Render an ImageBlock as an external #image(...) if extracted, or compilable figure placeholder."""
