@@ -20,7 +20,7 @@ def create_parser() -> argparse.ArgumentParser:
         prog="anyconvert",
         description=(
             "anyconvert: Pure-Python enterprise-grade document conversion engine.\n"
-            "Converts PDF documents into DOCX, PPTX, ODT, ODP, TXT, SVG, HTML, Markdown, EPUB, and RTF."
+            "Converts PDF documents into DOCX, PPTX, ODT, ODP, TXT, SVG, HTML, Markdown, EPUB, RTF, and Typst."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -33,7 +33,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-f",
         "--format",
-        choices=["docx", "pptx", "odt", "odp", "txt", "svg", "html", "md", "epub", "rtf"],
+        choices=["docx", "pptx", "odt", "odp", "txt", "svg", "html", "md", "epub", "rtf", "typst"],
         default="docx",
         help="Target document format.",
     )
@@ -108,10 +108,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     # Determine output path
+    ext_map = {"typst": "typ", "latex": "tex"}
+    fmt_lower = args.format.lower()
     if args.output:
         output_path = pathlib.Path(args.output)
     else:
-        output_path = input_path.with_suffix(f".{args.format.lower()}")
+        out_ext = ext_map.get(fmt_lower, fmt_lower)
+        output_path = input_path.with_suffix(f".{out_ext}")
 
     extract_images_arg: Optional[Union[bool, str]] = None
     if args.extract_images is not None:

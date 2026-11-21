@@ -24,6 +24,7 @@ from anyconvert.emitters.pptx import PptxEmitter
 from anyconvert.emitters.rtf import RtfEmitter
 from anyconvert.emitters.svg import SvgEmitter
 from anyconvert.emitters.txt import TxtEmitter
+from anyconvert.emitters.typst import TypstEmitter
 from anyconvert.exceptions import (
     AnyConvertError,
     PDFSyntaxError,
@@ -48,6 +49,7 @@ SUPPORTED_FORMATS: Set[str] = {
     "md",
     "epub",
     "rtf",
+    "typst",
 }
 
 
@@ -138,6 +140,8 @@ def _get_emitter(
         return EpubEmitter()
     elif fmt == "rtf":
         return RtfEmitter()
+    elif fmt in ("typst", "typ"):
+        return TypstEmitter(image_dir=image_dir)
     raise UnsupportedFormatError(
         format_name=output_format,
         supported_formats=sorted(list(SUPPORTED_FORMATS)),

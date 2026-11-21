@@ -17,6 +17,7 @@ from anyconvert.emitters.txt import (
     TxtEmitter,
     TxtFlowEmitter,
 )
+from anyconvert.emitters.typst import TypstEmitter
 
 __all__ = [
     "BaseEmitter",
@@ -34,4 +35,5 @@ __all__ = [
     "TxtEmitter",
     "TxtFlowEmitter",
     "TxtCanvasEmitter",
+    "TypstEmitter",
 ]
