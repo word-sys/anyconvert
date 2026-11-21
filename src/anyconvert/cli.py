@@ -20,7 +20,7 @@ def create_parser() -> argparse.ArgumentParser:
         prog="anyconvert",
         description=(
             "anyconvert: Pure-Python enterprise-grade document conversion engine.\n"
-            "Converts PDF documents into DOCX, PPTX, ODT, ODP, TXT, SVG, HTML, Markdown, EPUB, RTF, and Typst."
+            "Converts PDF documents into DOCX, PPTX, ODT, ODP, TXT, SVG, HTML, Markdown, EPUB, RTF, Typst, and LaTeX."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -33,7 +33,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-f",
         "--format",
-        choices=["docx", "pptx", "odt", "odp", "txt", "svg", "html", "md", "epub", "rtf", "typst"],
+        choices=["docx", "pptx", "odt", "odp", "txt", "svg", "html", "md", "epub", "rtf", "typst", "latex"],
         default="docx",
         help="Target document format.",
     )

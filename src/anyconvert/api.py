@@ -17,6 +17,7 @@ from anyconvert.emitters.base import BaseEmitter, ConversionMode
 from anyconvert.emitters.docx import DocxEmitter
 from anyconvert.emitters.epub import EpubEmitter
 from anyconvert.emitters.html import HTMLEmitter
+from anyconvert.emitters.latex import LatexEmitter
 from anyconvert.emitters.md import MarkdownEmitter
 from anyconvert.emitters.odp import OdpEmitter
 from anyconvert.emitters.odt import OdtEmitter
@@ -50,6 +51,7 @@ SUPPORTED_FORMATS: Set[str] = {
     "epub",
     "rtf",
     "typst",
+    "latex",
 }
 
 
@@ -142,6 +144,11 @@ def _get_emitter(
         return RtfEmitter()
     elif fmt in ("typst", "typ"):
         return TypstEmitter(image_dir=image_dir)
+    elif fmt in ("latex", "tex"):
+        return LatexEmitter(
+            image_dir=image_dir,
+            image_link_prefix=image_link_prefix,
+        )
     raise UnsupportedFormatError(
         format_name=output_format,
         supported_formats=sorted(list(SUPPORTED_FORMATS)),

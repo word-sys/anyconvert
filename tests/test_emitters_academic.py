@@ -11,6 +11,11 @@ from anyconvert.api import SUPPORTED_FORMATS, _get_emitter, convert, convert_byt
 from anyconvert.cli import main
 from anyconvert.common.color import Color
 from anyconvert.common.geometry import BoundingBox
+from anyconvert.emitters.latex import (
+    LatexEmitter,
+    escape_latex_text,
+    escape_latex_url,
+)
 from anyconvert.emitters.typst import (
     TypstEmitter,
     clean_typst_font_name,
@@ -330,4 +335,277 @@ def test_typst_native_table_spans_alignments_and_headers() -> None:
     assert 'table.header(table.cell(colspan: 2, fill: rgb("#F0F4F8"))[Dataset], [Accuracy]),' in tbl_typ
     assert "table.cell(rowspan: 2)[Benchmark A], [Fold 1], [98.4%]," in tbl_typ
     assert "  [Fold 2], [99.1%]," in tbl_typ
+
+
+def test_latex_escaping_helpers() -> None:
+    """Verify escaping of all 10 LaTeX special characters, typographic Unicode, and URLs."""
+    raw = r"\ { } $ & # % _ ^ ~ < > — – …"
+    escaped = escape_latex_text(raw)
+    assert r"\textbackslash{}" in escaped
+    assert r"\{" in escaped
+    assert r"\}" in escaped
+    assert r"\$" in escaped
+    assert r"\&" in escaped
+    assert r"\#" in escaped
+    assert r"\%" in escaped
+    assert r"\_" in escaped
+    assert r"\textasciicircum{}" in escaped
+    assert r"\textasciitilde{}" in escaped
+    assert r"\textless{}" in escaped
+    assert r"\textgreater{}" in escaped
+    assert "---" in escaped
+    assert "--" in escaped
+    assert r"\ldots{}" in escaped
+
+    # Control characters stripped cleanly without breaking output
+    assert escape_latex_text("A\x00\x07B\r\nC") == "AB \\\\\nC"
+
+    # URL escaping
+    url_esc = escape_latex_url("https://example.org/a%20b#sec{1}")
+    assert r"\%" in url_esc
+    assert r"\#" in url_esc
+    assert r"\{" in url_esc
+    assert r"\}" in url_esc
+
+
+def test_latex_emitter_preamble_blocks_lists_code_and_tables(tmp_path: pathlib.Path) -> None:
+    """Verify full LaTeX preamble, headings, inline runs, nested lists, verbatim, booktabs, and figures."""
+    black = Color.black()
+    blue = Color(10, 60, 180)
+    header_fill = Color(240, 244, 248)
+
+    blocks_p1: List[BlockNode] = [
+        Paragraph(
+            runs=[TextRun("Introduction", "Helvetica-Bold", 18.0, black, is_bold=True)],
+            heading_level=HeadingLevel.H1,
+        ),
+        Paragraph(
+            runs=[
+                TextRun("Plain ", "Times New Roman", 11.0, black),
+                TextRun("Bold ", "Times New Roman", 11.0, blue, is_bold=True),
+                TextRun("Italic ", "Times New Roman", 11.0, black, is_italic=True),
+                TextRun("Under ", "Times New Roman", 11.0, black, is_underline=True),
+                TextRun("Strike ", "Times New Roman", 11.0, black, is_strikethrough=True),
+                TextRun("x", "Times New Roman", 11.0, black),
+                TextRun("2", "Times New Roman", 8.0, black, baseline_offset=3.0),
+                TextRun("i ", "Times New Roman", 8.0, black, baseline_offset=-3.0),
+                TextRun("fn()", "Courier New", 10.0, black),
+                TextRun(" ", "Times New Roman", 11.0, black),
+                TextRun("https://ctan.org/pkg/booktabs", "Times New Roman", 11.0, black),
+            ]
+        ),
+        Paragraph(
+            runs=[TextRun("Centered Note", "Times New Roman", 11.0, black)],
+            alignment=Alignment.CENTER,
+        ),
+        Paragraph(runs=[TextRun("- Bullet one", "Times New Roman", 11.0, black)], list_marker="-", list_level=0),
+        Paragraph(runs=[TextRun("Sub bullet", "Times New Roman", 11.0, black)], list_marker="•", list_level=1),
+        Paragraph(runs=[TextRun("1. Step one", "Times New Roman", 11.0, black)], list_marker="1.", list_level=0),
+        Paragraph(runs=[TextRun("def f(x):", "Courier New", 10.0, black)]),
+        Paragraph(runs=[TextRun("    return x * 2", "Courier New", 10.0, black)]),
+        Table(
+            rows=[
+                TableRow(
+                    cells=[
+                        TableCell(
+                            content=[Paragraph(runs=[TextRun("Dataset", "H", 10.0, black)])],
+                            col_span=2,
+                            background_color=header_fill,
+                        ),
+                        TableCell(content=[Paragraph(runs=[TextRun("Score", "H", 10.0, black)])]),
+                    ],
+                    is_header=True,
+                ),
+                TableRow(
+                    cells=[
+                        TableCell(
+                            content=[Paragraph(runs=[TextRun("Bench A", "H", 10.0, black)])],
+                            row_span=2,
+                        ),
+                        TableCell(
+                            content=[Paragraph(runs=[TextRun("Fold 1", "H", 10.0, black)], alignment=Alignment.CENTER)]
+                        ),
+                        TableCell(content=[Paragraph(runs=[TextRun("98.4%", "H", 10.0, black)])]),
+                    ]
+                ),
+                TableRow(
+                    cells=[
+                        TableCell(
+                            content=[Paragraph(runs=[TextRun("Fold 2", "H", 10.0, black)], alignment=Alignment.CENTER)]
+                        ),
+                        TableCell(content=[Paragraph(runs=[TextRun("99.1%", "H", 10.0, black)])]),
+                    ]
+                ),
+            ]
+        ),
+        ImageBlock(
+            image_bytes=b"\x89PNG\r\n\x1a\nFAKEPNG",
+            bbox=BoundingBox(0, 0, 240, 120),
+            alt_text="Convergence Curve",
+            format="png",
+        ),
+    ]
+
+    p1 = DocumentPage(
+        page_number=1,
+        width=612.0,
+        height=792.0,
+        margin_top=72.0,
+        margin_bottom=72.0,
+        margin_left=72.0,
+        margin_right=72.0,
+        blocks=blocks_p1,
+        header=PageHeaderFooter(content=[Paragraph(runs=[TextRun("Preprint 2026", "H", 9.0, black)])]),
+        footer=PageHeaderFooter(
+            content=[Paragraph(runs=[TextRun("Page 1", "H", 9.0, black)])],
+            is_footer=True,
+        ),
+    )
+    p2 = DocumentPage(
+        page_number=2,
+        width=612.0,
+        height=792.0,
+        margin_top=54.0,
+        margin_bottom=54.0,
+        margin_left=54.0,
+        margin_right=54.0,
+        blocks=[
+            Paragraph(
+                runs=[TextRun("Appendix", "Helvetica-Bold", 14.0, black)],
+                heading_level=HeadingLevel.H2,
+            ),
+            Paragraph(runs=[TextRun(r"\end{verbatim} edge case", "Courier New", 10.0, black)]),
+        ],
+    )
+    doc = DocumentIR(
+        pages=[p1, p2],
+        metadata={
+            "Title": "Pure-Python LaTeX Synthesis",
+            "Author": "Alice Smith; Bob Jones",
+            "Subject": "Academic Publishing",
+            "Keywords": "latex, pdf, python",
+        },
+    )
+
+    tex_bytes = LatexEmitter(emit_maketitle=True).emit(doc)
+    tex_text = tex_bytes.decode("utf-8")
+
+    # Core preamble requirements
+    assert r"\documentclass[11pt]{article}" in tex_text
+    assert r"\usepackage[utf8]{inputenc}" in tex_text
+    assert r"\usepackage[T1]{fontenc}" in tex_text
+    assert r"\usepackage{geometry}" in tex_text
+    assert r"\usepackage{graphicx}" in tex_text
+    assert r"\usepackage{booktabs}" in tex_text
+    assert r"\usepackage{xcolor}" in tex_text
+    assert r"\usepackage{multirow}" in tex_text
+    assert r"\usepackage{colortbl}" in tex_text
+    assert r"\usepackage[normalem]{ulem}" in tex_text
+    assert r"\usepackage{fancyhdr}" in tex_text
+    assert r"\usepackage[hidelinks]{hyperref}" in tex_text
+
+    # Geometry, headers/footers, metadata
+    assert "paperwidth=612pt," in tex_text
+    assert "paperheight=792pt," in tex_text
+    assert "top=72pt," in tex_text
+    assert r"\fancyhead[R]{\small Preprint 2026}" in tex_text
+    assert r"\fancyfoot[C]{\small Page 1}" in tex_text
+    assert r"\title{Pure-Python LaTeX Synthesis}" in tex_text
+    assert r"\author{Alice Smith \and Bob Jones}" in tex_text
+    assert r"\maketitle" in tex_text
+    assert r"\begin{document}" in tex_text
+    assert r"\end{document}" in tex_text
+
+    # Headings and inline styling
+    assert r"\section{Introduction}" in tex_text
+    assert r"\textcolor[HTML]{0A3CB4}{\textbf{Bold}}" in tex_text
+    assert r"\textit{Italic}" in tex_text
+    assert r"\underline{Under}" in tex_text
+    assert r"\sout{Strike}" in tex_text
+    assert r"\textsuperscript{2}" in tex_text
+    assert r"\textsubscript{i}" in tex_text
+    assert r"\texttt{fn()}" in tex_text
+    assert r"\url{https://ctan.org/pkg/booktabs}" in tex_text
+    assert "\\begin{center}\nCentered Note\n\\end{center}" in tex_text
+
+    # Balanced nested lists
+    assert tex_text.count(r"\begin{itemize}") == tex_text.count(r"\end{itemize}") == 2
+    assert tex_text.count(r"\begin{enumerate}") == tex_text.count(r"\end{enumerate}") == 1
+    assert r"\item Bullet one" in tex_text
+    assert r"\item Sub bullet" in tex_text
+    assert r"\item Step one" in tex_text
+
+    # Verbatim code block and safe \end{verbatim} fallback
+    assert "\\begin{verbatim}\ndef f(x):\n    return x * 2\n\\end{verbatim}" in tex_text
+    assert r"\begin{quote}\ttfamily" in tex_text
+
+    # Booktabs table with spans, alignment, and fill
+    assert r"\begin{tabular}{lcr}" in tex_text
+    assert r"\toprule" in tex_text
+    assert r"\midrule" in tex_text
+    assert r"\bottomrule" in tex_text
+    assert r"\multicolumn{2}{l}{\cellcolor[HTML]{F0F4F8}Dataset}" in tex_text
+    assert r"\multirow{2}{*}{Bench A}" in tex_text
+
+    # Page 2 geometry change & heading
+    assert r"\newgeometry{top=54pt, bottom=54pt, left=54pt, right=54pt}" in tex_text
+    assert r"\subsection{Appendix}" in tex_text
+
+    # Standalone figure placeholder
+    assert r"\begin{figure}[htbp]" in tex_text
+    assert r"\caption{Convergence Curve}" in tex_text
+
+    # Image extraction mode with relative prefix
+    img_out = tmp_path / "latex_assets"
+    emitter_img = LatexEmitter(image_dir=img_out, image_link_prefix="images")
+    tex_with_img = emitter_img.render(doc)
+    assert r"\includegraphics[width=240pt]{images/img_1.png}" in tex_with_img
+    assert (img_out / "img_1.png").is_file()
+    assert len(emitter_img.extracted_images) == 1
+
+    # Unnumbered headings option
+    unnumbered = LatexEmitter(numbered_headings=False).render(doc)
+    assert r"\section*{Introduction}" in unnumbered
+    assert r"\subsection*{Appendix}" in unnumbered
+
+    # Empty DocumentIR raises SerializationError
+    with pytest.raises(SerializationError):
+        LatexEmitter().emit(DocumentIR(pages=[]))
+
+
+def test_latex_api_and_cli_integration(tmp_path: pathlib.Path) -> None:
+    """Verify 'latex' format registration in API and CLI including default .tex output extension."""
+    assert "latex" in SUPPORTED_FORMATS
+    assert isinstance(_get_emitter("latex"), LatexEmitter)
+    assert isinstance(_get_emitter("tex"), LatexEmitter)
+
+    pdf_bytes = _build_minimal_pdf()
+    tex_bytes = convert_bytes(pdf_bytes, output_format="latex")
+    tex_text = tex_bytes.decode("utf-8")
+    assert r"\documentclass[" in tex_text
+    assert r"\usepackage{geometry}" in tex_text
+    assert r"\usepackage{graphicx}" in tex_text
+    assert r"\usepackage{booktabs}" in tex_text
+    assert r"\title{Research Paper}" in tex_text
+    assert "Academic Emitter Verification" in tex_text
+
+    in_pdf = tmp_path / "paper.pdf"
+    out_tex = tmp_path / "custom.tex"
+    in_pdf.write_bytes(pdf_bytes)
+
+    assert main([str(in_pdf), "-f", "latex", "-o", str(out_tex)]) == 0
+    assert out_tex.is_file()
+    assert "Academic Emitter Verification" in out_tex.read_text(encoding="utf-8")
+
+    # Default output naming produces paper.tex (not paper.latex)
+    assert main([str(in_pdf), "-f", "latex"]) == 0
+    default_tex = tmp_path / "paper.tex"
+    assert default_tex.is_file()
+    assert "Academic Emitter Verification" in default_tex.read_text(encoding="utf-8")
+
+    # Direct API file-to-file
+    api_tex = tmp_path / "api_out.tex"
+    convert(in_pdf, output_format="latex", output_path=api_tex)
+    assert api_tex.is_file()
+
 
