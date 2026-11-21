@@ -8,9 +8,10 @@ from typing import List
 import pytest
 
 from anyconvert.api import SUPPORTED_FORMATS, _get_emitter, convert, convert_bytes
-from anyconvert.cli import main
+from anyconvert.cli import create_parser, main
 from anyconvert.common.color import Color
 from anyconvert.common.geometry import BoundingBox
+from anyconvert.emitters.base import ConversionMode
 from anyconvert.emitters.latex import (
     LatexEmitter,
     classify_math_font,
@@ -29,7 +30,7 @@ from anyconvert.emitters.typst import (
     render_typst_table,
     translate_math_text_to_typst,
 )
-from anyconvert.exceptions import SerializationError
+from anyconvert.exceptions import PDFPasswordRequiredError, SerializationError
 from anyconvert.ir.model import (
     Alignment,
     BlockNode,
@@ -793,6 +794,163 @@ def test_pdf_symbol_font_end_to_end_math_extraction() -> None:
     typ_out = convert_bytes(pdf_bytes, output_format="typst").decode("utf-8")
     assert "$alpha" in typ_out or "alpha" in typ_out
     assert "beta$" in typ_out or "beta" in typ_out
+
+
+def _build_pdf_with_embedded_image() -> bytes:
+    """Build a valid single-page PDF containing text and a 2x2 RGB raster Image XObject."""
+    raw_pixels = bytes([255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0])
+    content_stream = (
+        b"BT /F1 12 Tf 72 720 Td (Figure Analysis) Tj ET\n"
+        b"q 120 0 0 80 72 600 cm /Im1 Do Q\n"
+    )
+    objs: List[bytes] = [
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        b"2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        (
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Contents 4 0 R /Resources << "
+            b"/Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> "
+            b"/XObject << /Im1 5 0 R >> "
+            b">> >>\nendobj\n"
+        ),
+        (
+            f"4 0 obj\n<< /Length {len(content_stream)} >>\nstream\n".encode("ascii")
+            + content_stream
+            + b"endstream\nendobj\n"
+        ),
+        (
+            f"5 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 2 "
+            f"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Length {len(raw_pixels)} >>\nstream\n".encode("ascii")
+            + raw_pixels
+            + b"\nendstream\nendobj\n"
+        ),
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offs = [0]
+    for obj in objs:
+        offs.append(len(out))
+        out.extend(obj)
+    xref_pos = len(out)
+    out.extend(f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode("ascii"))
+    for o in offs[1:]:
+        out.extend(f"{o:010d} 00000 n \n".encode("ascii"))
+    out.extend(
+        f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(out)
+
+
+def test_academic_cli_and_api_extract_images_and_aliases(tmp_path: pathlib.Path) -> None:
+    """Verify Typst & LaTeX CLI/API image extraction, relative prefixes, format aliases, and modes."""
+    parser = create_parser()
+    fmt_action = next(a for a in parser._actions if a.dest == "format")
+    assert fmt_action.choices is not None
+    assert "typst" in fmt_action.choices
+    assert "latex" in fmt_action.choices
+
+    # Format aliases and case-insensitive normalization
+    for alias in ("typst", "typ", ".typ", "TYPST"):
+        assert isinstance(_get_emitter(alias), TypstEmitter)
+    for alias in ("latex", "tex", ".tex", "LATEX"):
+        assert isinstance(_get_emitter(alias), LatexEmitter)
+
+    # Embedded image PDF tested through CLI --extract-images for both Typst and LaTeX
+    in_pdf = tmp_path / "report.pdf"
+    in_pdf.write_bytes(_build_pdf_with_embedded_image())
+
+    # 1. Typst with default sibling images/ directory
+    typ_dir = tmp_path / "typ_default"
+    typ_out = typ_dir / "report.typ"
+    assert main([str(in_pdf), "-f", "typst", "-o", str(typ_out), "--extract-images"]) == 0
+    typ_text = typ_out.read_text(encoding="utf-8")
+    assert 'image("images/img_1.png")' in typ_text
+    assert (typ_dir / "images" / "img_1.png").is_file()
+
+    # 2. Typst with custom asset directory
+    typ_custom_dir = tmp_path / "typ_custom"
+    typ_custom_out = typ_custom_dir / "paper.typ"
+    typ_figs = typ_custom_dir / "figs"
+    assert main([str(in_pdf), "-f", "typst", "-o", str(typ_custom_out), "--extract-images", str(typ_figs)]) == 0
+    assert 'image("figs/img_1.png")' in typ_custom_out.read_text(encoding="utf-8")
+    assert (typ_figs / "img_1.png").is_file()
+
+    # 3. LaTeX with default sibling images/ directory
+    tex_dir = tmp_path / "tex_default"
+    tex_out = tex_dir / "report.tex"
+    assert main([str(in_pdf), "-f", "latex", "-o", str(tex_out), "--extract-images"]) == 0
+    tex_text = tex_out.read_text(encoding="utf-8")
+    assert "{images/img_1.png}" in tex_text
+    assert r"\includegraphics[" in tex_text
+    assert (tex_dir / "images" / "img_1.png").is_file()
+
+    # 4. LaTeX with custom asset directory via Python API
+    tex_custom_dir = tmp_path / "tex_custom"
+    tex_custom_out = tex_custom_dir / "paper.tex"
+    tex_figs = tex_custom_dir / "assets"
+    convert(in_pdf, output_format="tex", output_path=tex_custom_out, extract_images=tex_figs)
+    assert "{assets/img_1.png}" in tex_custom_out.read_text(encoding="utf-8")
+    assert (tex_figs / "img_1.png").is_file()
+
+    # 5. Direct DocumentIR conversion & flow/canvas modes for both formats
+    black = Color.black()
+    ir = DocumentIR(
+        pages=[DocumentPage(1, 612.0, 792.0, blocks=[Paragraph(runs=[TextRun("Direct IR", "H", 11.0, black)])])]
+    )
+    for fmt in ("typst", "latex"):
+        for mode in (ConversionMode.FLOW, ConversionMode.CANVAS, "flow", "canvas"):
+            payload = convert(ir, output_format=fmt, mode=mode)
+            assert b"Direct IR" in payload
+
+
+def test_academic_cli_api_multipage_encrypted_and_verbose(
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify multi-page transitions, encrypted PDF handling, and CLI verbose/error paths."""
+    from tests.test_api_cli_e2e import build_encrypted_pdf, build_synthetic_multipage_pdf
+
+    # Multi-page conversion through CLI with -v verbose output
+    multi_pdf = tmp_path / "multi.pdf"
+    multi_pdf.write_bytes(build_synthetic_multipage_pdf())
+
+    multi_typ = tmp_path / "multi.typ"
+    assert main([str(multi_pdf), "-f", "typst", "-o", str(multi_typ), "-v"]) == 0
+    typ_content = multi_typ.read_text(encoding="utf-8")
+    assert "#pagebreak(weak: true)" in typ_content
+    assert "Annual Corporate Report 2026" in typ_content
+    assert "Strategic Vision" in typ_content
+
+    multi_tex = tmp_path / "multi.tex"
+    assert main([str(multi_pdf), "-f", "latex", "-o", str(multi_tex), "-v"]) == 0
+    tex_content = multi_tex.read_text(encoding="utf-8")
+    assert r"\newpage" in tex_content
+    assert "Annual Corporate Report 2026" in tex_content
+    assert "Strategic Vision" in tex_content
+
+    captured = capsys.readouterr()
+    assert "[anyconvert]" in captured.err
+
+    # Encrypted PDF handling in API and CLI for both academic formats
+    enc_bytes = build_encrypted_pdf(b"secret42")
+    with pytest.raises(PDFPasswordRequiredError):
+        convert_bytes(enc_bytes, output_format="typst")
+    with pytest.raises(PDFPasswordRequiredError):
+        convert_bytes(enc_bytes, output_format="latex")
+
+    enc_typ = convert_bytes(enc_bytes, output_format="typst", password="secret42").decode("utf-8")
+    enc_tex = convert_bytes(enc_bytes, output_format="latex", password="secret42").decode("utf-8")
+    assert "Confidential Financial Data" in enc_typ
+    assert "Confidential Financial Data" in enc_tex
+
+    enc_pdf = tmp_path / "secret.pdf"
+    enc_pdf.write_bytes(enc_bytes)
+    assert main([str(enc_pdf), "-f", "typst", "-p", "secret42"]) == 0
+    assert main([str(enc_pdf), "-f", "latex", "-p", "secret42"]) == 0
+    assert (tmp_path / "secret.typ").is_file()
+    assert (tmp_path / "secret.tex").is_file()
+    assert "Confidential Financial Data" in (tmp_path / "secret.typ").read_text(encoding="utf-8")
+    assert "Confidential Financial Data" in (tmp_path / "secret.tex").read_text(encoding="utf-8")
+
 
 
 

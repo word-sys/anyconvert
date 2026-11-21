@@ -143,7 +143,10 @@ def _get_emitter(
     elif fmt == "rtf":
         return RtfEmitter()
     elif fmt in ("typst", "typ"):
-        return TypstEmitter(image_dir=image_dir)
+        return TypstEmitter(
+            image_dir=image_dir,
+            image_link_prefix=image_link_prefix,
+        )
     elif fmt in ("latex", "tex"):
         return LatexEmitter(
             image_dir=image_dir,
@@ -253,15 +256,17 @@ def convert(
     password: str = "",
     extract_images: Optional[Union[bool, str, pathlib.Path]] = None,
 ) -> bytes:
-    """Convert a PDF document into a target document format (DOCX, PPTX, ODT, ODP, TXT, SVG, HTML, MD).
+    """Convert a PDF document into a target document format.
 
     Args:
-        input_path: File path, Path object, or raw PDF bytes.
-        output_format: Target format ('docx', 'pptx', 'odt', 'odp', 'txt', 'svg', 'html', 'md').
+        input_path: File path, Path object, raw PDF bytes, ByteReader, or DocumentIR.
+        output_format: Target format ('docx', 'pptx', 'odt', 'odp', 'txt', 'svg',
+            'html', 'md', 'epub', 'rtf', 'typst', 'latex').
         output_path: Optional file path to write output. If None, output is only returned as bytes.
         mode: Layout mode, either ConversionMode.FLOW / 'flow' or ConversionMode.CANVAS / 'canvas'.
         password: Optional password if the PDF document is encrypted.
-        extract_images: When truthy or a directory path, write extracted images to disk and link them (Markdown).
+        extract_images: When truthy or a directory path, write extracted images to disk and link
+            them in Markdown, Typst, and LaTeX outputs.
 
     Returns:
         bytes: Converted document binary payload.
@@ -301,7 +306,8 @@ def convert_bytes(
 
     Args:
         pdf_bytes: Raw bytes of the PDF file.
-        output_format: Target format ('docx', 'pptx', 'odt', 'odp', 'txt', 'svg', 'html', 'md').
+        output_format: Target format ('docx', 'pptx', 'odt', 'odp', 'txt', 'svg',
+            'html', 'md', 'epub', 'rtf', 'typst', 'latex').
         mode: Layout mode ('flow' or 'canvas').
         password: Optional password if the PDF document is encrypted.
         extract_images: Optional image extraction directory path or True for default 'images/'.

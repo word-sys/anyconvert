@@ -126,6 +126,7 @@ class TypstEmitter(BaseEmitter):
         "emit_pagebreaks",
         "enable_math_heuristics",
         "image_dir",
+        "image_link_prefix",
         "extracted_images",
     )
 
@@ -136,6 +137,7 @@ class TypstEmitter(BaseEmitter):
         emit_pagebreaks: bool = True,
         enable_math_heuristics: bool = True,
         image_dir: Optional[Union[str, pathlib.Path]] = None,
+        image_link_prefix: Optional[str] = None,
     ) -> None:
         self.language: str = language.strip().replace("_", "-") or "en"
         self.render_headers_footers: bool = render_headers_footers
@@ -144,6 +146,7 @@ class TypstEmitter(BaseEmitter):
         self.image_dir: Optional[pathlib.Path] = (
             pathlib.Path(image_dir) if image_dir is not None else None
         )
+        self.image_link_prefix: Optional[str] = image_link_prefix
         self.extracted_images: List[pathlib.Path] = []
 
     def emit(
@@ -380,7 +383,11 @@ class TypstEmitter(BaseEmitter):
             target = self.image_dir / filename
             target.write_bytes(img.image_bytes)
             self.extracted_images.append(target)
-            rel_ref = f"{self.image_dir.as_posix().rstrip('/')}/{filename}"
+            if self.image_link_prefix is not None:
+                prefix = self.image_link_prefix.rstrip("/")
+                rel_ref = f"{prefix}/{filename}" if prefix else filename
+            else:
+                rel_ref = f"{self.image_dir.as_posix().rstrip('/')}/{filename}"
             return (
                 f'#figure(\n  image("{escape_typst_string(rel_ref)}"),\n'
                 f"  caption: [{escape_typst_markup(alt)}],\n)"

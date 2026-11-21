@@ -61,7 +61,7 @@ def create_parser() -> argparse.ArgumentParser:
         const="",
         default=None,
         metavar="DIR",
-        help="Extract embedded images to DIR (defaults to 'images/' next to output) and link in Markdown.",
+        help="Extract embedded images to DIR (defaults to 'images/' next to output) and link in Markdown, Typst, and LaTeX.",
     )
     parser.add_argument(
         "-v",
