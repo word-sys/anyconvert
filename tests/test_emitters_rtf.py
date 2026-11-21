@@ -35,6 +35,7 @@ from anyconvert.emitters.rtf import (
     format_alignment,
     format_line_spacing,
     format_paragraph_controls,
+    compute_rtf_col_widths,
     resolve_paragraph_style_index,
     resolve_rtf_font,
 )
@@ -42,6 +43,7 @@ from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
     Alignment,
     BlockNode,
+    Border,
     DocumentIR,
     DocumentPage,
     HeadingLevel,
@@ -432,5 +434,78 @@ def test_rtf_paragraph_styles_headings_indentations_and_lists() -> None:
     assert r"\strike" in rtf_text
     assert r"\super" in rtf_text
     assert r"\sub" in rtf_text
+
+
+def test_rtf_table_matrix_borders_shading_and_spans() -> None:
+    """Verify RTF table generator emits \\trowd, \\clbrdr*, \\clcbpat, \\clvmgf/\\clvmrg, \\cellxN, \\intbl, \\cell, \\row."""
+    black = Color.black()
+    header_bg = Color(230, 240, 250)
+    border_blue = Color(30, 90, 160)
+
+    hdr_cell = TableCell(
+        content=[Paragraph(runs=[TextRun("Merged Header", "Helvetica", 11.0, black, is_bold=True)])],
+        col_span=2,
+        background_color=header_bg,
+        borders={
+            "top": Border(style="double", width=1.5, color=border_blue),
+            "bottom": Border(style="solid", width=1.0, color=border_blue),
+            "left": Border(style="dashed", width=0.75, color=border_blue),
+            "right": Border(style="dotted", width=0.75, color=border_blue),
+        },
+    )
+    row_hdr = TableRow(cells=[hdr_cell], height=24.0, is_header=True)
+
+    vmerge_cell = TableCell(
+        content=[Paragraph(runs=[TextRun("Spanned Cat", "Helvetica", 10.0, black)])],
+        row_span=2,
+    )
+    multi_p_cell = TableCell(
+        content=[
+            Paragraph(runs=[TextRun("Line A", "Helvetica", 10.0, black)]),
+            Paragraph(runs=[TextRun("Line B", "Helvetica", 10.0, black)]),
+        ]
+    )
+    row_1 = TableRow(cells=[vmerge_cell, multi_p_cell])
+
+    row_2 = TableRow(
+        cells=[TableCell(content=[Paragraph(runs=[TextRun("Row 2 Val", "Helvetica", 10.0, black)])])]
+    )
+
+    tbl = Table(
+        rows=[row_hdr, row_1, row_2],
+        col_widths=[120.0, 240.0],
+        alignment=Alignment.CENTER,
+    )
+    empty_tbl = Table(rows=[])
+
+    doc = DocumentIR(pages=[DocumentPage(1, 612.0, 792.0, blocks=[tbl, empty_tbl])])
+    rtf_text = assert_valid_rtf(RtfEmitter().emit(doc))
+
+    assert r"\trowd" in rtf_text
+    assert r"\trqc" in rtf_text
+    assert r"\trhdr" in rtf_text
+    assert r"\trrh480" in rtf_text
+    assert r"\clbrdrt\brdrdb" in rtf_text
+    assert r"\clbrdrl\brdrdash" in rtf_text
+    assert r"\clbrdrr\brdrdot" in rtf_text
+    assert r"\clbrdrb\brdrs" in rtf_text
+    assert r"\clcbpat" in rtf_text
+    assert r"\clvmgf" in rtf_text
+    assert r"\clvmrg" in rtf_text
+    assert r"\intbl" in rtf_text
+    assert r"\cellx2400" in rtf_text
+    assert r"\cellx7200" in rtf_text
+    assert r"\cell" in rtf_text
+    assert r"\row" in rtf_text
+    assert "Merged Header" in rtf_text
+    assert "Line A" in rtf_text and "Line B" in rtf_text
+    assert "Row 2 Val" in rtf_text
+
+    # Verify proportional width scaling when total width exceeds page printable area
+    wide_tbl = Table(rows=[row_1], col_widths=[400.0, 400.0])
+    scaled = compute_rtf_col_widths(wide_tbl, num_cols=2, max_width_twips=9360)
+    assert sum(scaled) <= 9360
+    assert scaled[0] == scaled[1]
+
 
 

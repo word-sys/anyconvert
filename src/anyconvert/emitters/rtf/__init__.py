@@ -21,6 +21,14 @@ from anyconvert.emitters.rtf.styles import (
     format_run_rtf,
     resolve_paragraph_style_index,
 )
+from anyconvert.emitters.rtf.tables import (
+    DEFAULT_TABLE_WIDTH_TWIPS,
+    MIN_COL_WIDTH_TWIPS,
+    compute_rtf_col_widths,
+    format_cell_borders,
+    format_rtf_border,
+    render_rtf_table,
+)
 from anyconvert.emitters.rtf.unicode import (
     CP_ARABIC,
     CP_CENTRAL_EUR,
@@ -58,6 +66,12 @@ __all__ = [
     "format_paragraph_controls",
     "format_run_rtf",
     "build_paragraph_rtf",
+    "DEFAULT_TABLE_WIDTH_TWIPS",
+    "MIN_COL_WIDTH_TWIPS",
+    "format_rtf_border",
+    "format_cell_borders",
+    "compute_rtf_col_widths",
+    "render_rtf_table",
     "RtfCodePageProfile",
     "CP_WESTERN",
     "CP_CENTRAL_EUR",

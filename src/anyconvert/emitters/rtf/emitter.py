@@ -19,6 +19,10 @@ from anyconvert.emitters.rtf.styles import (
     build_paragraph_rtf,
     format_run_rtf,
 )
+from anyconvert.emitters.rtf.tables import (
+    DEFAULT_TABLE_WIDTH_TWIPS,
+    render_rtf_table,
+)
 from anyconvert.emitters.rtf.unicode import (
     classify_rtf_font_family,
     clean_rtf_font_name,
@@ -335,8 +339,17 @@ class RtfEmitter(BaseEmitter):
             if ftr_body:
                 lines.append(f"{{\\footer {ftr_body}}}")
 
+        printable_w = max(
+            1440,
+            pt_to_dxa(max(72.0, page.width - page.margin_left - page.margin_right)),
+        )
         for block in page.blocks:
-            rendered = self.render_block(block, font_table, color_table)
+            rendered = self.render_block(
+                block,
+                font_table,
+                color_table,
+                max_table_width_twips=printable_w,
+            )
             if rendered:
                 lines.append(rendered)
 
@@ -347,12 +360,18 @@ class RtfEmitter(BaseEmitter):
         block: BlockNode,
         font_table: RtfFontTable,
         color_table: RtfColorTable,
+        max_table_width_twips: int = DEFAULT_TABLE_WIDTH_TWIPS,
     ) -> str:
         """Render a single BlockNode into RTF control words."""
         if isinstance(block, Paragraph):
             return self.render_paragraph(block, font_table, color_table)
         if isinstance(block, Table):
-            return self.render_table(block, font_table, color_table)
+            return self.render_table(
+                block,
+                font_table,
+                color_table,
+                max_width_twips=max_table_width_twips,
+            )
         if isinstance(block, ImageBlock):
             return self.render_image(block)
         if isinstance(block, VectorBlock):
@@ -401,42 +420,17 @@ class RtfEmitter(BaseEmitter):
         table: Table,
         font_table: RtfFontTable,
         color_table: RtfColorTable,
+        max_width_twips: int = DEFAULT_TABLE_WIDTH_TWIPS,
     ) -> str:
-        """Render a basic RTF table row sequence (extended in tables.py)."""
-        if not table.rows:
-            return ""
-
-        num_cols = max((len(r.cells) for r in table.rows), default=0)
-        if num_cols == 0:
-            return ""
-
-        default_cell_w = max(1440, 9360 // num_cols)
-        lines: List[str] = []
-        for row in table.rows:
-            cell_defs: List[str] = ["\\trowd\\trgaph108"]
-            cell_bodies: List[str] = []
-            right_x = 0
-            for idx, cell in enumerate(row.cells):
-                w_twips = (
-                    pt_to_dxa(cell.width)
-                    if cell.width > 0
-                    else (
-                        pt_to_dxa(table.col_widths[idx])
-                        if idx < len(table.col_widths) and table.col_widths[idx] > 0
-                        else default_cell_w
-                    )
-                )
-                right_x += max(360, w_twips)
-                cell_defs.append(f"\\cellx{right_x}")
-                cell_parts: List[str] = []
-                for sub in cell.content:
-                    if isinstance(sub, Paragraph):
-                        cell_parts.append(
-                            "".join(self.render_run(r, font_table, color_table) for r in sub.runs)
-                        )
-                cell_bodies.append("\\pard\\intbl " + "\\line ".join(cell_parts) + "\\cell")
-            lines.append("".join(cell_defs) + "".join(cell_bodies) + "\\row")
-        return "\n".join(lines)
+        """Render a Table IR node into an RTF 1.9.1 table matrix."""
+        return render_rtf_table(
+            table=table,
+            render_paragraph_fn=lambda p: self.render_paragraph(
+                p, font_table, color_table, in_table=True
+            ),
+            register_color_fn=color_table.register,
+            max_width_twips=max_width_twips,
+        )
 
     def render_image(self, img: ImageBlock) -> str:
         """Render an ImageBlock placeholder (binary \\pict embedding added in pictures.py)."""
