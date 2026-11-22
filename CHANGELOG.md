@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.13] - 2026-11-22
+
+### Added
+- **RTF 1.9.1 Rich Text Format Emitter (`-f rtf`)**: Added pure-Python RTF 1.9.1 generator (`RtfEmitter`) with complete header tables (`\fonttbl`, `\colortbl`, `\stylesheet`, `\info`), full Unicode & multi-script ANSI codepage fallback encoding (`\uN\'xx` with automatic Windows codepage detection for Turkish `cp1254`, Cyrillic `cp1251`, Greek `cp1253`, Central European `cp1250`, Arabic, Hebrew, and CJK), styled paragraph and run formatting (`\s0`–`\s10`, margins, indents, alignment, lists), 2D occupancy-tracked RTF tables (`\trowd`, `\cellx`, `col_span` merged widths, `row_span` `\clvmgf`/`\clvmrg`, borders, and cell shading), and inline hex-encoded PNG/JPEG picture embedding (`\pict\pngblip` / `\pict\jpegblip`) with pure-Python header dimension parsing.
+- **Typst Academic Document Emitter (`-f typst`)**: Added native `.typ` emitter (`TypstEmitter`) generating clean, `typst compile`-ready documents with `#set document(...)`, `#set page(...)`, `#set text(...)`, `#set par(...)`, headings (`=`–`======`), idiomatic inline formatting (`*bold*`, `_italic_`, `` `code` ``, `#underline`, `#strike`, `#link`), grouped lists and fenced raw code blocks, occupancy-tracked native `#table(...)` (`columns`, auto-detected `align`, `table.header(...)`, `table.cell(colspan/rowspan/fill)`), and project-relative image extraction via `--extract-images`.
+- **LaTeX Academic Document Emitter (`-f latex`)**: Added native `.tex` emitter (`LatexEmitter`) generating compilable LaTeX documents with modal base font sizing (`\documentclass[10pt|11pt|12pt]{article}`), UTF-8/T1 encoding, `\usepackage{geometry}`, `\usepackage{graphicx}`, `\usepackage{booktabs}`, `\usepackage{xcolor}`, `\usepackage[hidelinks]{hyperref}`, conditional loading of `amsmath,amssymb`, `multirow`, `colortbl`, `ulem`, and `fancyhdr`, balanced nested `itemize`/`enumerate` lists, `verbatim` code blocks, publication-quality `booktabs` tables, and figure extraction via `--extract-images`.
+- **Mathematical Formula & Symbol Heuristics**: Added dedicated math extraction modules (`emitters/latex/math.py` and `emitters/typst/math.py`) detecting superscript/subscript baseline shifts (both explicit `baseline_offset` and geometric bounding-box displacement), decoding legacy `Symbol`, `CMSY`, `CMMI`, `CMEX`, and `MSBM` math fonts alongside Unicode Greek and math operators, and emitting clean inline LaTeX (`$x^2$`, `$\alpha + \beta \le \gamma$`, `$\mathcal{L}$`, `$\mathbb{R}$`) and Typst (`$x^2$`, `$alpha + beta <= gamma$`, `$cal(L)$`, `$RR$`) formulas while preserving prose ordinals and footnotes.
+
+### Changed
+- **CLI & API Academic & Rich-Text Integration**: Registered `rtf`, `typst` (default `.typ`, alias `typ`), and `latex` (default `.tex`, alias `tex`) across `SUPPORTED_FORMATS`, Python API (`convert`, `convert_bytes`), and CLI (`-f rtf`, `-f typst`, `-f latex`), and extended `--extract-images [DIR]` relative asset linking to Typst and LaTeX alongside Markdown.
+
+---
+
 ## [0.1.12] - 2026-11-19
 
 ### Added

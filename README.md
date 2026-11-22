@@ -6,7 +6,7 @@
 
 **Python document conversion engine**
 
-`anyconvert` converts PDF documents into **DOCX**, **PPTX**, **ODT**, **ODP**, **TXT**, **SVG**, **HTML5**, **Markdown (GFM)**, and **EPUB 3** using only the Python standard library.
+`anyconvert` converts PDF documents into **DOCX**, **PPTX**, **ODT**, **ODP**, **TXT**, **SVG**, **HTML5**, **Markdown (GFM)**, **EPUB 3**, **RTF**, **Typst**, and **LaTeX** using only the Python standard library.
 
 ---
 
@@ -27,6 +27,11 @@
   - Modular media extraction via `--extract-images [DIR]` writing embedded JPEG/PNG/WebP images to disk with relative Markdown links.
 - **EPUB 3.3 E-Book Generation Engine**:
   - Standards-compliant OCF 3.3 container (`mimetype` uncompressed at byte offset 0, `META-INF/container.xml`, `OEBPS/` structure), OPF 3.0 `content.opf` manifest and spine with Dublin Core metadata, hierarchical H1–H3 `nav.xhtml` plus legacy DAISY `toc.ncx` fallback for Kindle/Kobo, and automatic chapter splitting at `H1` or page boundaries.
+- **RTF 1.9.1 Rich Text Format Engine**:
+  - Universal legacy word-processor compatibility (WordPad, LibreOffice, Microsoft Word, Apple TextEdit) with complete `\fonttbl`, `\colortbl`, and `\stylesheet` tables, multi-script Unicode/ANSI `\uN\'xx` encoding (Turkish, Cyrillic, Greek, Central European, Arabic, Hebrew, CJK), `col_span`/`row_span` tables (`\clvmgf`/`\clvmrg`), and inline PNG/JPEG `\pict` embedding.
+- **Academic & Scientific Publishing (Typst & LaTeX + Math Heuristics)**:
+  - Generates clean, compilable **Typst** (`.typ`) and **LaTeX** (`.tex`) source with page geometry, typography setup, nested lists, code blocks, native `#table(...)` / `booktabs` tables, and `--extract-images` project-relative figures.
+  - Heuristic mathematical formula extraction detects explicit and geometric superscript/subscript baseline shifts and decodes `Symbol`, `CMSY`, `CMMI`, `CMEX`, `MSBM`, and Unicode Greek/math symbols into `$x^2$` / `$\alpha + \beta \le \gamma$` (LaTeX) and `$x^2$` / `$alpha + beta <= gamma$` (Typst).
 - **Terminal-Friendly Plaintext Canvas**:
   - 2D character grid renderer (`-f txt -m canvas`) with junction-merging Unicode box-drawing (`┌─┐│└─┘┬┴├┤┼`) for table grids, image frames, and vector lines.
 - **Comprehensive PDF Coverage**:
@@ -53,6 +58,9 @@
 | **Plaintext** | `.txt` | Clean reflowable text | Unicode box-drawing (`┌─┐│└─┘`) 2D character grid | UTF-8 Plaintext |
 | **Markdown / GFM** | `.md` | GFM tables, code fences, task lists, YAML frontmatter, `--extract-images` | Reflowable GFM / CommonMark | CommonMark / GFM |
 | **EPUB 3 E-Book** | `.epub` | Split XHTML chapters, `nav.xhtml` + `toc.ncx`, embedded CSS & images | Reflowable EPUB 3.3 | W3C EPUB 3.3 (OCF) |
+| **Rich Text Format** | `.rtf` | Styled paragraphs, Unicode `\uN\'xx`, span tables, hex `\pict` images | Reflowable RTF 1.9.1 | Microsoft RTF 1.9.1 |
+| **Typst** | `.typ` | `#set page/text`, `#table`, math heuristics, `--extract-images` | Reflowable Typst source | Typst Markup |
+| **LaTeX** | `.tex` | `geometry`, `graphicx`, `booktabs`, `amsmath`, math heuristics | Reflowable LaTeX source | LaTeX2e / TeX Live |
 | **Scalable Vector Graphics** | `.svg` | Vertically stacked vector view | Individual SVG vector pages with curves & text | W3C SVG 1.1 |
 | **Standalone HTML5** | `.html` | Semantic `<article>`, `<p>`, `<table>` | Absolute coordinate `<div>` & `<svg>` canvas | W3C HTML5 (Offline Data URI) |
 
@@ -94,16 +102,31 @@ anyconvert [OPTIONS] INPUT_PDF
 
 | Flag | Argument | Description | Default |
 | :--- | :--- | :--- | :--- |
-| `-f`, `--format` | `docx\|pptx\|odt\|odp\|txt\|svg\|html\|md\|epub` | Target document format | `docx` |
-| `-o`, `--output` | `PATH` | Output destination file path | `{input_basename}.{format}` |
+| `-f`, `--format` | `docx\|pptx\|odt\|odp\|txt\|svg\|html\|md\|epub\|rtf\|typst\|latex` | Target document format | `docx` |
+| `-o`, `--output` | `PATH` | Output destination file path | `{input_basename}.{ext}` |
 | `-m`, `--mode` | `flow\|canvas` | Layout reconstruction mode (`canvas` for 1:1 visual match) | `flow` |
 | `-p`, `--password` | `STRING` | Decryption password for encrypted PDFs | `""` |
-| `--extract-images` | `[DIR]` | Extract embedded images to `DIR` (defaults to `images/`) and link in Markdown | `None` |
+| `--extract-images` | `[DIR]` | Extract embedded images to `DIR` (defaults to `images/`) and link in Markdown, Typst, and LaTeX | `None` |
 | `-v`, `--verbose` | | Enable diagnostic logging | `False` |
 | `--version` | | Print version and exit | |
 | `-h`, `--help` | | Show help message and exit | |
 
 ### CLI Examples
+
+**Convert Research Paper to Typst (with Extracted Figures & Math):**
+```bash
+anyconvert paper.pdf -f typst -o paper.typ --extract-images
+```
+
+**Convert Research Paper to Compilable LaTeX (`booktabs` + `amsmath`):**
+```bash
+anyconvert paper.pdf -f latex -o paper.tex --extract-images
+```
+
+**Convert PDF to Universal Rich Text Format (RTF 1.9.1):**
+```bash
+anyconvert contract.pdf -f rtf -o contract.rtf
+```
 
 **Convert PDF Book to EPUB 3.3 E-Book (with TOC & Chapters):**
 ```bash
@@ -199,6 +222,27 @@ convert(
     output_format="epub",
     output_path="book.epub",
 )
+
+# Academic Typst & LaTeX conversion with math heuristics and extracted figures
+convert(
+    input_path="paper.pdf",
+    output_format="typst",
+    output_path="paper.typ",
+    extract_images=True,
+)
+convert(
+    input_path="paper.pdf",
+    output_format="latex",
+    output_path="paper.tex",
+    extract_images=True,
+)
+
+# Rich Text Format (RTF 1.9.1) export
+convert(
+    input_path="contract.pdf",
+    output_format="rtf",
+    output_path="contract.rtf",
+)
 ```
 
 ### In-Memory Byte Conversion (`convert_bytes`)
@@ -265,10 +309,11 @@ for page in doc_ir.pages:
                                     ▼
                          [ DocumentIR Builder ]
                                     │
-       ┌─────────────────────┬──────┴──────────────┬─────────────────────┐
-       ▼                     ▼                     ▼                     ▼
-[ DOCX / PPTX ]       [ ODT / ODP ]         [ TXT / MD ]          [ HTML5 / SVG / EPUB 3 ]
-  (DrawingML)         (ISO/IEC 26300)     (Canvas / GFM)         (W3C Web / OCF 3.3)
+       ┌───────────────────┬────────┴──────┬──────────────┬─────────────────┬───────────────────┐
+       ▼                   ▼               ▼              ▼                 ▼
+[ DOCX / PPTX ]     [ ODT / ODP ]    [ TXT / MD ]   [ HTML5 / SVG / ]  [ RTF 1.9.1 /       ]
+  (DrawingML)       (ISO/IEC 26300)  (Canvas / GFM) [   EPUB 3      ]  [ Typst / LaTeX     ]
+                                                    (W3C Web / OCF)    (Academic & Math)
 ```
 
 ---

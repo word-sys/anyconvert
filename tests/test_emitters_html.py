@@ -457,7 +457,7 @@ def test_package_metadata_and_offline_csp() -> None:
 
     assert "<!DOCTYPE html>" in html
     assert "<title>Annual Financial Report</title>" in html
-    assert '<meta name="generator" content="anyconvert 0.1.12">' in html
+    assert '<meta name="generator" content="anyconvert 0.1.13">' in html
     assert '<meta name="author" content="Acme Corp Finance Team">' in html
     assert '<meta name="description" content="Quarterly metrics and projections">' in html
     assert '<meta name="keywords" content="finance, report, 2026, metrics">' in html
