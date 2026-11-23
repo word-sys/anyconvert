@@ -378,3 +378,332 @@ def test_builder_vector_underline_correlation() -> None:
     assert len(paras) == 1
     assert any(run.is_underline for run in paras[0].runs)
 
+
+def test_json_ast_lossless_roundtrip_all_node_types() -> None:
+    """Verify lossless JSON AST serialization and deserialization across all DocumentIR node types."""
+    import copy
+    import json
+
+    from anyconvert.ir import (
+        JSON_AST_SCHEMA_VERSION,
+        VectorBlock,
+        deserialize_document_ir,
+        document_ir_from_dict,
+        document_ir_to_dict,
+        serialize_document_ir,
+        validate_json_ast_schema,
+    )
+
+    png_bytes = encode_gray_png(2, 2, b"\x00\x7F\xFF\x20")
+    accent = Color(12, 95, 210, 0.75)
+
+    nested_table = Table(
+        rows=[
+            TableRow(
+                cells=[
+                    TableCell(
+                        content=[
+                            Paragraph(
+                                runs=[TextRun("Inner", "Helvetica", 9.0, Color.black())]
+                            )
+                        ]
+                    )
+                ]
+            )
+        ],
+        col_widths=[60.0],
+        alignment=Alignment.LEFT,
+    )
+
+    outer_table = Table(
+        rows=[
+            TableRow(
+                height=24.0,
+                is_header=True,
+                cells=[
+                    TableCell(
+                        content=[
+                            Paragraph(
+                                runs=[TextRun("Metric", "Helvetica-Bold", 11.0, Color.black(), is_bold=True)],
+                                alignment=Alignment.CENTER,
+                            )
+                        ],
+                        col_span=2,
+                        row_span=1,
+                        width=220.0,
+                        height=24.0,
+                        background_color=Color(240, 245, 250),
+                        borders={
+                            "top": Border(style="solid", width=1.5, color=Color.black()),
+                            "bottom": Border(style="dashed", width=0.5, color=accent),
+                        },
+                    )
+                ],
+            ),
+            TableRow(
+                height=30.0,
+                is_header=False,
+                cells=[
+                    TableCell(
+                        content=[
+                            Paragraph(
+                                runs=[TextRun("Value", "Helvetica", 10.0, Color.black())],
+                            )
+                        ],
+                        width=100.0,
+                        height=30.0,
+                    ),
+                    TableCell(
+                        content=[nested_table],
+                        width=120.0,
+                        height=30.0,
+                    ),
+                ],
+            ),
+        ],
+        col_widths=[100.0, 120.0],
+        alignment=Alignment.CENTER,
+        bbox=BoundingBox(72.0, 200.0, 292.0, 260.0),
+    )
+
+    p_heading = Paragraph(
+        runs=[
+            TextRun(
+                text="Section 1: Overview",
+                font_name="Times-Bold",
+                font_size=18.0,
+                color=accent,
+                is_bold=True,
+                is_italic=True,
+                is_underline=True,
+                is_strikethrough=False,
+                tracking=0.25,
+                baseline_offset=1.5,
+                bbox=BoundingBox(72.0, 80.0, 280.0, 100.0),
+            )
+        ],
+        alignment=Alignment.JUSTIFIED,
+        heading_level=HeadingLevel.H1,
+        line_spacing=1.3,
+        space_before=12.0,
+        space_after=6.0,
+        indent_left=4.0,
+        indent_right=2.0,
+        indent_first_line=8.0,
+        list_marker="1.",
+        list_level=1,
+        bbox=BoundingBox(72.0, 80.0, 280.0, 100.0),
+    )
+
+    img_block = ImageBlock(
+        image_bytes=png_bytes,
+        bbox=BoundingBox(72.0, 300.0, 172.0, 400.0),
+        alt_text="Sample Raster",
+        rotation=15.0,
+        format="png",
+        pixel_width=2,
+        pixel_height=2,
+    )
+
+    vec_block = VectorBlock(
+        svg_path="M 72 420 L 200 420 L 200 480 Z",
+        bbox=BoundingBox(72.0, 420.0, 200.0, 480.0),
+        fill_color=Color(255, 200, 0, 0.5),
+        stroke_color=Color.black(),
+        stroke_width=2.0,
+        fill_rule="evenodd",
+        fill_alpha=0.5,
+        stroke_alpha=0.9,
+        line_cap=1,
+        line_join=2,
+        miter_limit=8.0,
+        dash_array=[4.0, 2.0],
+        dash_phase=1.0,
+    )
+
+    page1 = DocumentPage(
+        page_number=1,
+        width=612.0,
+        height=792.0,
+        margin_top=60.0,
+        margin_bottom=60.0,
+        margin_left=72.0,
+        margin_right=72.0,
+        blocks=[p_heading, outer_table, img_block, vec_block],
+        header=PageHeaderFooter(
+            content=[Paragraph(runs=[TextRun("Top Header", "Helvetica", 9.0, Color.black())])],
+            is_footer=False,
+        ),
+        footer=PageHeaderFooter(
+            content=[Paragraph(runs=[TextRun("Page 1", "Helvetica", 9.0, Color.black())])],
+            is_footer=True,
+        ),
+    )
+
+    doc_ir = DocumentIR(
+        pages=[page1],
+        metadata={"Title": "JSON AST Spec", "Author": "Data Pipeline"},
+    )
+
+    # 1. Serialize to JSON string and validate AST structure
+    json_str = serialize_document_ir(doc_ir, indent=2)
+    parsed = json.loads(json_str)
+    validate_json_ast_schema(parsed)
+
+    assert parsed["schema_version"] == JSON_AST_SCHEMA_VERSION
+    assert parsed["type"] == "document"
+    assert parsed["metadata"]["Title"] == "JSON AST Spec"
+    assert len(parsed["pages"]) == 1
+    p0 = parsed["pages"][0]
+    assert p0["margins"] == {"top": 60.0, "bottom": 60.0, "left": 72.0, "right": 72.0}
+    assert p0["blocks"][0]["text"] == "Section 1: Overview"
+    assert p0["blocks"][0]["runs"][0]["color"]["hex"] == "#0C5FD2"
+    assert p0["blocks"][2]["mime_type"] == "image/png"
+    assert isinstance(p0["blocks"][2]["data_base64"], str)
+
+    # 2. Lossless round-trip from str and UTF-8 bytes
+    reconstructed = deserialize_document_ir(json_str)
+    reconstructed_bytes = deserialize_document_ir(json_str.encode("utf-8"))
+    assert reconstructed == doc_ir
+    assert reconstructed_bytes == doc_ir
+
+    # 3. Lightweight text-only AST mode (include_images=False)
+    lite_dict = document_ir_to_dict(doc_ir, include_images=False)
+    assert lite_dict["pages"][0]["blocks"][2]["data_base64"] is None
+    lite_ir = document_ir_from_dict(lite_dict, validate=False)
+    lite_img = lite_ir.pages[0].blocks[2]
+    assert isinstance(lite_img, ImageBlock)
+    assert lite_img.image_bytes == b""
+    assert lite_img.alt_text == "Sample Raster"
+
+    # 4. Hex color shorthand acceptance during deserialization
+    hex_variant = copy.deepcopy(parsed)
+    hex_variant["pages"][0]["blocks"][0]["runs"][0]["color"] = "#0C5FD2"
+    hex_ir = document_ir_from_dict(hex_variant)
+    hex_para = hex_ir.pages[0].blocks[0]
+    assert isinstance(hex_para, Paragraph)
+    assert hex_para.runs[0].color == Color(12, 95, 210, 1.0)
+
+    # 5. Compact JSON & ensure_ascii options
+    compact = serialize_document_ir(doc_ir, indent=None, ensure_ascii=True)
+    assert "\n" not in compact
+    assert deserialize_document_ir(compact) == doc_ir
+
+
+def test_json_ast_schema_validation_errors() -> None:
+    """Verify strict schema and invariant rejections on malformed JSON AST payloads."""
+    from anyconvert.exceptions import SerializationError
+    from anyconvert.ir import (
+        deserialize_document_ir,
+        document_ir_from_dict,
+        document_ir_to_dict,
+        serialize_document_ir,
+    )
+
+    base_valid = document_ir_to_dict(
+        DocumentIR(
+            pages=[
+                DocumentPage(
+                    page_number=1,
+                    width=612.0,
+                    height=792.0,
+                    blocks=[Paragraph(runs=[TextRun("Ok", "Helvetica", 11.0, Color.black())])],
+                )
+            ]
+        )
+    )
+
+    # Malformed JSON and invalid UTF-8
+    with pytest.raises(SerializationError):
+        deserialize_document_ir("{not valid json")
+    with pytest.raises(SerializationError):
+        deserialize_document_ir(b"\xff\xfe\xfd")
+
+    # Unsupported schema_version
+    bad_ver = dict(base_valid, schema_version="9.9")
+    with pytest.raises(SerializationError, match="schema_version"):
+        document_ir_from_dict(bad_ver)
+
+    # Wrong root type
+    bad_root = dict(base_valid, type="not_a_document")
+    with pytest.raises(SerializationError, match=r"\$\.type"):
+        document_ir_from_dict(bad_root)
+
+    # Boolean masquerading as int (Python bool is subclass of int)
+    bad_bool_page = dict(base_valid, pages=[dict(base_valid["pages"][0], page_number=True)])
+    with pytest.raises(SerializationError, match="expected int"):
+        document_ir_from_dict(bad_bool_page)
+
+    # Unknown block type
+    bad_block = dict(
+        base_valid,
+        pages=[dict(base_valid["pages"][0], blocks=[{"type": "video"}])],
+    )
+    with pytest.raises(SerializationError, match="unsupported block type"):
+        document_ir_from_dict(bad_block)
+
+    # Invalid Base64 payload on ImageBlock
+    bad_img = dict(
+        base_valid,
+        pages=[
+            dict(
+                base_valid["pages"][0],
+                blocks=[
+                    {
+                        "type": "image",
+                        "format": "png",
+                        "bbox": {"x0": 0.0, "y0": 0.0, "x1": 10.0, "y1": 10.0},
+                        "data_base64": "!!!not-base64!!!",
+                    }
+                ],
+            )
+        ],
+    )
+    with pytest.raises(SerializationError, match="Base64"):
+        document_ir_from_dict(bad_img)
+
+    # Invalid bounding box (x1 < x0)
+    bad_bbox = dict(
+        base_valid,
+        pages=[
+            dict(
+                base_valid["pages"][0],
+                blocks=[
+                    {
+                        "type": "vector",
+                        "svg_path": "M 0 0 L 1 1",
+                        "bbox": {"x0": 20.0, "y0": 0.0, "x1": 10.0, "y1": 10.0},
+                    }
+                ],
+            )
+        ],
+    )
+    with pytest.raises(SerializationError, match="invalid bbox bounds"):
+        document_ir_from_dict(bad_bbox)
+
+    # Non-finite float rejected during serialization (RFC 8259 allow_nan=False)
+    nan_doc = DocumentIR(
+        pages=[
+            DocumentPage(
+                page_number=1,
+                width=612.0,
+                height=792.0,
+                blocks=[
+                    Paragraph(
+                        runs=[TextRun("NaN", "Helvetica", 11.0, Color.black(), tracking=float("nan"))]
+                    )
+                ],
+            )
+        ]
+    )
+    with pytest.raises(SerializationError):
+        serialize_document_ir(nan_doc)
+
+    # Empty pages rejected when validate=True, accepted structurally when validate=False
+    empty_dict = dict(base_valid, pages=[])
+    with pytest.raises(IRValidationError):
+        document_ir_from_dict(empty_dict, validate=True)
+    empty_ir = document_ir_from_dict(empty_dict, validate=False)
+    assert empty_ir.pages == []
+
+
