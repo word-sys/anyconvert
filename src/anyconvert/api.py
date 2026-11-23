@@ -28,6 +28,7 @@ from anyconvert.emitters.rtf import RtfEmitter
 from anyconvert.emitters.svg import SvgEmitter
 from anyconvert.emitters.txt import TxtEmitter
 from anyconvert.emitters.typst import TypstEmitter
+from anyconvert.emitters.xlsx import XlsxEmitter
 from anyconvert.exceptions import (
     AnyConvertError,
     PDFSyntaxError,
@@ -56,6 +57,7 @@ SUPPORTED_FORMATS: Set[str] = {
     "latex",
     "json",
     "csv",
+    "xlsx",
 }
 
 
@@ -160,6 +162,8 @@ def _get_emitter(
         return JsonEmitter()
     elif fmt == "csv":
         return CsvEmitter()
+    elif fmt == "xlsx":
+        return XlsxEmitter()
     raise UnsupportedFormatError(
         format_name=output_format,
         supported_formats=sorted(list(SUPPORTED_FORMATS)),
@@ -269,7 +273,7 @@ def convert(
     Args:
         input_path: File path, Path object, raw PDF bytes, ByteReader, or DocumentIR.
         output_format: Target format ('docx', 'pptx', 'odt', 'odp', 'txt', 'svg',
-            'html', 'md', 'epub', 'rtf', 'typst', 'latex', 'json', 'csv').
+            'html', 'md', 'epub', 'rtf', 'typst', 'latex', 'json', 'csv', 'xlsx').
         output_path: Optional file path to write output. If None, output is only returned as bytes.
         mode: Layout mode, either ConversionMode.FLOW / 'flow' or ConversionMode.CANVAS / 'canvas'.
         password: Optional password if the PDF document is encrypted.
@@ -315,7 +319,7 @@ def convert_bytes(
     Args:
         pdf_bytes: Raw bytes of the PDF file.
         output_format: Target format ('docx', 'pptx', 'odt', 'odp', 'txt', 'svg',
-            'html', 'md', 'epub', 'rtf', 'typst', 'latex', 'json', 'csv').
+            'html', 'md', 'epub', 'rtf', 'typst', 'latex', 'json', 'csv', 'xlsx').
         mode: Layout mode ('flow' or 'canvas').
         password: Optional password if the PDF document is encrypted.
         extract_images: Optional image extraction directory path or True for default 'images/'.

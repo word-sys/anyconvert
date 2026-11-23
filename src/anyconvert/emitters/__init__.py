@@ -21,6 +21,7 @@ from anyconvert.emitters.txt import (
     TxtFlowEmitter,
 )
 from anyconvert.emitters.typst import TypstEmitter
+from anyconvert.emitters.xlsx import XlsxEmitter
 
 __all__ = [
     "BaseEmitter",
@@ -43,4 +44,5 @@ __all__ = [
     "TxtFlowEmitter",
     "TxtCanvasEmitter",
     "TypstEmitter",
+    "XlsxEmitter",
 ]

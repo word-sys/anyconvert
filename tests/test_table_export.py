@@ -5,7 +5,9 @@ from __future__ import annotations
 import csv
 import io
 import pathlib
-from typing import List
+from typing import List, Set
+import xml.etree.ElementTree as ET
+import zipfile
 
 import pytest
 
@@ -17,7 +19,8 @@ from anyconvert.emitters.csv import (
     extract_tables_from_ir,
     table_to_grid,
 )
-from anyconvert.exceptions import SerializationError
+from anyconvert.emitters.xlsx import XlsxEmitter
+from anyconvert.exceptions import PackagingError, SerializationError
 from anyconvert.ir.model import (
     BlockNode,
     DocumentIR,
@@ -27,6 +30,15 @@ from anyconvert.ir.model import (
     TableCell,
     TableRow,
     TextRun,
+)
+from anyconvert.packaging.xlsx import (
+    SPREADSHEETML_NS,
+    XLSXPackage,
+    cell_ref,
+    col_index_to_letter,
+    merge_range_ref,
+    sanitize_sheet_name,
+    sanitize_xlsx_text,
 )
 
 
@@ -286,3 +298,215 @@ def test_csv_api_and_cli_end_to_end(tmp_path: pathlib.Path) -> None:
     api_csv = tmp_path / "api_statement.csv"
     convert(in_pdf, output_format="csv", output_path=api_csv)
     assert api_csv.is_file()
+
+
+def test_xlsx_coordinate_and_sheet_name_helpers() -> None:
+    """Verify A1 column/cell/merge references, sheet title sanitization, and XML character stripping."""
+    assert col_index_to_letter(0) == "A"
+    assert col_index_to_letter(25) == "Z"
+    assert col_index_to_letter(26) == "AA"
+    assert col_index_to_letter(51) == "AZ"
+    assert col_index_to_letter(52) == "BA"
+    assert col_index_to_letter(701) == "ZZ"
+    assert col_index_to_letter(702) == "AAA"
+
+    with pytest.raises(PackagingError):
+        col_index_to_letter(-1)
+
+    assert cell_ref(0, 0) == "A1"
+    assert cell_ref(9, 2) == "C10"
+    assert merge_range_ref(0, 0, 0, 1) == "A1:B1"
+    assert merge_range_ref(1, 0, 2, 0) == "A2:A3"
+
+    with pytest.raises(PackagingError):
+        merge_range_ref(0, 0, 0, 0)
+
+    used: Set[str] = set()
+    assert sanitize_sheet_name("  'Sales: Q1/Q2* [2026]?'  ", used) == "Sales Q1 Q2 2026"
+    assert sanitize_sheet_name("Sales: Q1/Q2* [2026]?", used) == "Sales Q1 Q2 2026 (2)"
+    long_title = "A" * 45
+    assert len(sanitize_sheet_name(long_title, used)) == 31
+    assert len(sanitize_sheet_name(long_title, used)) <= 31
+
+    # Illegal C0 control chars stripped while preserving tab/newline and escaping entities
+    assert sanitize_xlsx_text("A\x00\x07&B<C>\nD") == "A&amp;B&lt;C&gt;\nD"
+
+    # Zero-sheet workbook raises PackagingError
+    with pytest.raises(PackagingError, match="zero worksheets"):
+        XLSXPackage().to_bytes()
+
+
+def test_xlsx_emitter_structure_merges_shared_strings_and_types() -> None:
+    """Verify ISO/IEC 29500-2 XLSX archive structure, sharedStrings, numeric cells, and <mergeCell>."""
+    tbl1 = Table(
+        rows=[
+            TableRow(
+                cells=[
+                    _cell("Region", col_span=2),
+                    _cell("Revenue"),
+                    _cell("Code"),
+                ],
+                is_header=True,
+            ),
+            TableRow(
+                cells=[
+                    _cell("EMEA", row_span=2),
+                    _cell("North"),
+                    _cell("1250.5"),
+                    _cell("0042"),
+                ]
+            ),
+            TableRow(
+                cells=[
+                    _cell("South"),
+                    _cell("-40"),
+                    _cell("Line 1\nLine 2"),
+                ]
+            ),
+        ],
+        col_widths=[100.0, 100.0, 80.0, 70.0],
+    )
+    tbl2 = Table(
+        rows=[
+            TableRow(cells=[_cell("KPI"), _cell("Status")], is_header=True),
+            TableRow(cells=[_cell("Margin"), _cell("Healthy")]),
+        ],
+        col_widths=[140.0, 100.0],
+    )
+
+    doc = DocumentIR(
+        pages=[
+            DocumentPage(1, 612.0, 792.0, blocks=[tbl1]),
+            DocumentPage(
+                2,
+                612.0,
+                792.0,
+                blocks=[
+                    Paragraph(runs=[TextRun("Section 2", "Helvetica", 14.0, Color.black())]),
+                    tbl2,
+                ],
+            ),
+        ],
+        metadata={"Title": "Quarterly Financials", "Author": "Finance Ops"},
+    )
+
+    xlsx_bytes = XlsxEmitter().emit(doc)
+    with zipfile.ZipFile(io.BytesIO(xlsx_bytes), "r") as zf:
+        names = set(zf.namelist())
+        assert "[Content_Types].xml" in names
+        assert "_rels/.rels" in names
+        assert "xl/workbook.xml" in names
+        assert "xl/_rels/workbook.xml.rels" in names
+        assert "xl/styles.xml" in names
+        assert "xl/sharedStrings.xml" in names
+        assert "xl/worksheets/sheet1.xml" in names
+        assert "xl/worksheets/sheet2.xml" in names
+        assert "docProps/core.xml" in names
+        assert "docProps/app.xml" in names
+
+        # Parse and verify every XML part is well-formed
+        for name in names:
+            if name.endswith(".xml") or name.endswith(".rels"):
+                ET.fromstring(zf.read(name))
+
+        ns = {"s": SPREADSHEETML_NS}
+        wb_root = ET.fromstring(zf.read("xl/workbook.xml"))
+        sheet_els = wb_root.findall("s:sheets/s:sheet", ns)
+        assert [el.attrib["name"] for el in sheet_els] == ["Table 1", "Table 2"]
+
+        # Verify shared strings table (leading zeros and multi-line text stored with xml:space="preserve")
+        sst_root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+        sst_texts = [t.text or "" for t in sst_root.findall("s:si/s:t", ns)]
+        assert "Region" in sst_texts
+        assert "0042" in sst_texts
+        assert "Line 1\nLine 2" in sst_texts
+
+        # Verify sheet1 dimension, columns, merged cells, and numeric vs string cells
+        ws1_root = ET.fromstring(zf.read("xl/worksheets/sheet1.xml"))
+        dim_el = ws1_root.find("s:dimension", ns)
+        assert dim_el is not None and dim_el.attrib["ref"] == "A1:D3"
+
+        cols = ws1_root.findall("s:cols/s:col", ns)
+        assert len(cols) == 4
+
+        merges = [m.attrib["ref"] for m in ws1_root.findall("s:mergeCells/s:mergeCell", ns)]
+        assert merges == ["A1:B1", "A2:A3"]
+
+        # C2 ("1250.5") and C3 ("-40") emitted as numeric cells (no t="s"), while D2 ("0042") is t="s"
+        cells_by_ref = {
+            c.attrib["r"]: c
+            for c in ws1_root.findall("s:sheetData/s:row/s:c", ns)
+        }
+        assert "t" not in cells_by_ref["C2"].attrib
+        v_c2 = cells_by_ref["C2"].find("s:v", ns)
+        assert v_c2 is not None and v_c2.text == "1250.5"
+        assert "t" not in cells_by_ref["C3"].attrib
+        v_c3 = cells_by_ref["C3"].find("s:v", ns)
+        assert v_c3 is not None and v_c3.text == "-40"
+        assert cells_by_ref["D2"].attrib.get("t") == "s"
+
+    # Single-table selection via table_index=1
+    single_bytes = XlsxEmitter(table_index=1).emit(doc)
+    with zipfile.ZipFile(io.BytesIO(single_bytes), "r") as zf:
+        wb_single = ET.fromstring(zf.read("xl/workbook.xml"))
+        sheets_single = wb_single.findall(f"{{{SPREADSHEETML_NS}}}sheets/{{{SPREADSHEETML_NS}}}sheet")
+        assert len(sheets_single) == 1
+        assert sheets_single[0].attrib["name"] == "Table 2"
+
+    with pytest.raises(SerializationError, match="out of range"):
+        XlsxEmitter(table_index=9).emit(doc)
+
+    # Fallback Document sheet when no tables exist (vs export_tables_only=True)
+    prose_doc = DocumentIR(
+        pages=[DocumentPage(1, 612.0, 792.0, blocks=[Paragraph(runs=[TextRun("Cover Page", "H", 12.0, Color.black())])])]
+    )
+    fallback_bytes = XlsxEmitter().emit(prose_doc)
+    with zipfile.ZipFile(io.BytesIO(fallback_bytes), "r") as zf:
+        wb_fb = ET.fromstring(zf.read("xl/workbook.xml"))
+        fb_sheets = wb_fb.findall(f"{{{SPREADSHEETML_NS}}}sheets/{{{SPREADSHEETML_NS}}}sheet")
+        assert len(fb_sheets) == 1
+        assert fb_sheets[0].attrib["name"] == "Document"
+
+    with pytest.raises(SerializationError, match="No tables found"):
+        XlsxEmitter(export_tables_only=True).emit(prose_doc)
+    with pytest.raises(SerializationError):
+        XlsxEmitter().emit(DocumentIR(pages=[]))
+
+
+def test_xlsx_api_and_cli_end_to_end(tmp_path: pathlib.Path) -> None:
+    """Verify 'xlsx' format registration and end-to-end PDF-to-XLSX conversion via API and CLI."""
+    assert "xlsx" in SUPPORTED_FORMATS
+    assert isinstance(_get_emitter("xlsx"), XlsxEmitter)
+
+    parser = create_parser()
+    fmt_action = next(a for a in parser._actions if a.dest == "format")
+    assert fmt_action.choices is not None
+    assert "xlsx" in fmt_action.choices
+
+    pdf_bytes = _build_pdf_with_statement_table()
+    xlsx_bytes = convert_bytes(pdf_bytes, output_format="xlsx")
+    with zipfile.ZipFile(io.BytesIO(xlsx_bytes), "r") as zf:
+        assert "xl/workbook.xml" in zf.namelist()
+        assert "xl/worksheets/sheet1.xml" in zf.namelist()
+        sst_xml = zf.read("xl/sharedStrings.xml").decode("utf-8")
+        assert "Acme, Inc. Cloud" in sst_xml
+        assert "$1,250.00" in sst_xml
+
+    in_pdf = tmp_path / "report.pdf"
+    out_xlsx = tmp_path / "report_out.xlsx"
+    in_pdf.write_bytes(pdf_bytes)
+
+    assert main([str(in_pdf), "-f", "xlsx", "-o", str(out_xlsx)]) == 0
+    assert out_xlsx.is_file()
+    with zipfile.ZipFile(out_xlsx, "r") as zf:
+        assert "xl/worksheets/sheet1.xml" in zf.namelist()
+
+    # Default output extension produces report.xlsx
+    assert main([str(in_pdf), "-f", "xlsx"]) == 0
+    assert (tmp_path / "report.xlsx").is_file()
+
+    # Direct API file-to-file
+    api_xlsx = tmp_path / "api_report.xlsx"
+    convert(in_pdf, output_format="xlsx", output_path=api_xlsx)
+    assert api_xlsx.is_file()
+

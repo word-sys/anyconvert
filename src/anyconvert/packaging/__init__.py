@@ -92,6 +92,23 @@ from anyconvert.packaging.opc import (
     get_relationships_path,
     normalize_part_name,
 )
+from anyconvert.packaging.xlsx import (
+    CT_SPREADSHEET_SHARED_STRINGS,
+    CT_SPREADSHEET_STYLES,
+    CT_SPREADSHEET_WORKBOOK,
+    CT_SPREADSHEET_WORKSHEET,
+    OFFICE_REL_NS,
+    RT_SHARED_STRINGS,
+    RT_WORKSHEET,
+    SPREADSHEETML_NS,
+    XLSXPackage,
+    XLSXSheet,
+    cell_ref,
+    col_index_to_letter,
+    merge_range_ref,
+    sanitize_sheet_name,
+    sanitize_xlsx_text,
+)
 
 __all__ = [
     # OPC
@@ -176,4 +193,20 @@ __all__ = [
     "infer_epub_media_type",
     "EPUBPart",
     "EPUBPackage",
+    # XLSX
+    "SPREADSHEETML_NS",
+    "OFFICE_REL_NS",
+    "CT_SPREADSHEET_WORKBOOK",
+    "CT_SPREADSHEET_WORKSHEET",
+    "CT_SPREADSHEET_STYLES",
+    "CT_SPREADSHEET_SHARED_STRINGS",
+    "RT_WORKSHEET",
+    "RT_SHARED_STRINGS",
+    "XLSXSheet",
+    "XLSXPackage",
+    "col_index_to_letter",
+    "cell_ref",
+    "merge_range_ref",
+    "sanitize_sheet_name",
+    "sanitize_xlsx_text",
 ]
