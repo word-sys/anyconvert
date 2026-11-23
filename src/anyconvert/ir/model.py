@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Mapping, Optional, Union
 
 from anyconvert.common.color import Color
 from anyconvert.common.geometry import BoundingBox
@@ -284,6 +284,64 @@ class DocumentIR:
 
     pages: List[DocumentPage] = field(default_factory=list)
     metadata: Dict[str, str] = field(default_factory=dict)
+
+    def to_dict(
+        self,
+        *,
+        include_images: bool = True,
+        validate: bool = True,
+    ) -> Dict[str, Any]:
+        """Serialize this DocumentIR into a schema-validated JSON AST dictionary."""
+        from anyconvert.ir.serializer import document_ir_to_dict
+
+        return document_ir_to_dict(
+            self,
+            include_images=include_images,
+            validate=validate,
+        )
+
+    def to_json(
+        self,
+        *,
+        indent: Optional[int] = 2,
+        include_images: bool = True,
+        ensure_ascii: bool = False,
+        validate: bool = True,
+    ) -> str:
+        """Serialize this DocumentIR into a schema-validated JSON AST string."""
+        from anyconvert.ir.serializer import serialize_document_ir
+
+        return serialize_document_ir(
+            self,
+            indent=indent,
+            include_images=include_images,
+            ensure_ascii=ensure_ascii,
+            validate=validate,
+        )
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: Mapping[str, Any],
+        *,
+        validate: bool = True,
+    ) -> DocumentIR:
+        """Reconstruct a DocumentIR instance from a parsed JSON AST dictionary."""
+        from anyconvert.ir.serializer import document_ir_from_dict
+
+        return document_ir_from_dict(data, validate=validate)
+
+    @classmethod
+    def from_json(
+        cls,
+        payload: Union[str, bytes, bytearray],
+        *,
+        validate: bool = True,
+    ) -> DocumentIR:
+        """Reconstruct a DocumentIR instance from a JSON AST string or UTF-8 bytes."""
+        from anyconvert.ir.serializer import deserialize_document_ir
+
+        return deserialize_document_ir(payload, validate=validate)
 
 
 __all__ = [

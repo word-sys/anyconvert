@@ -1,5 +1,9 @@
 """Tests for Document Intermediate Representation (DIR) models, validator, and builder."""
 
+from __future__ import annotations
+
+import pathlib
+
 import pytest
 
 from anyconvert.common.color import Color
@@ -705,5 +709,89 @@ def test_json_ast_schema_validation_errors() -> None:
         document_ir_from_dict(empty_dict, validate=True)
     empty_ir = document_ir_from_dict(empty_dict, validate=False)
     assert empty_ir.pages == []
+
+
+def test_document_ir_to_json_methods_and_cli_api_export(tmp_path: pathlib.Path) -> None:
+    """Verify DocumentIR.to_json/from_json methods, JsonEmitter, API, and CLI -f json export."""
+    import json
+
+    from anyconvert.api import SUPPORTED_FORMATS, _get_emitter, convert, convert_bytes, pdf_to_document_ir
+    from anyconvert.cli import create_parser, main
+    from anyconvert.emitters import JsonEmitter
+    from anyconvert.exceptions import SerializationError
+    from anyconvert.ir import JSON_AST_SCHEMA_VERSION, validate_json_ast_schema
+    from tests.test_api_cli_e2e import build_encrypted_pdf, build_synthetic_multipage_pdf
+
+    # 1. DocumentIR.to_json / from_json / to_dict / from_dict methods
+    pdf_bytes = build_synthetic_multipage_pdf()
+    doc_ir = pdf_to_document_ir(pdf_bytes)
+
+    json_text = doc_ir.to_json(indent=2)
+    parsed = json.loads(json_text)
+    validate_json_ast_schema(parsed)
+    assert parsed["schema_version"] == JSON_AST_SCHEMA_VERSION
+    assert parsed["type"] == "document"
+    assert parsed["metadata"]["Title"] == "Annual Corporate Report"
+    assert len(parsed["pages"]) == 2
+
+    assert DocumentIR.from_json(json_text) == doc_ir
+    assert DocumentIR.from_dict(doc_ir.to_dict()) == doc_ir
+
+    compact_json = doc_ir.to_json(indent=None, include_images=False)
+    assert "\n" not in compact_json
+    assert json.loads(compact_json)["schema_version"] == JSON_AST_SCHEMA_VERSION
+
+    # 2. JsonEmitter and API registration
+    assert "json" in SUPPORTED_FORMATS
+    assert isinstance(_get_emitter("json"), JsonEmitter)
+    assert isinstance(_get_emitter(".json"), JsonEmitter)
+
+    with pytest.raises(SerializationError):
+        JsonEmitter().emit(DocumentIR(pages=[]))
+
+    raw_json_bytes = convert_bytes(pdf_bytes, output_format="json")
+    assert raw_json_bytes.endswith(b"\n")
+    parsed_api = json.loads(raw_json_bytes.decode("utf-8"))
+    validate_json_ast_schema(parsed_api)
+    assert DocumentIR.from_json(raw_json_bytes) == doc_ir
+
+    # 3. CLI parser and execution (-f json default naming + explicit -o + canvas mode)
+    parser = create_parser()
+    fmt_action = next(a for a in parser._actions if a.dest == "format")
+    assert fmt_action.choices is not None
+    assert "json" in fmt_action.choices
+
+    work_dir = pathlib.Path(tmp_path)
+    in_pdf = work_dir / "report.pdf"
+    in_pdf.write_bytes(pdf_bytes)
+
+    # Default output filename -> report.json
+    assert main([str(in_pdf), "-f", "json"]) == 0
+    default_json = work_dir / "report.json"
+    assert default_json.is_file()
+    with default_json.open("r", encoding="utf-8") as fh:
+        loaded_default = json.load(fh)
+    validate_json_ast_schema(loaded_default)
+    assert len(loaded_default["pages"]) == 2
+
+    # Explicit -o path with canvas mode
+    custom_json = work_dir / "ast.json"
+    assert main([str(in_pdf), "-f", "json", "-m", "canvas", "-o", str(custom_json)]) == 0
+    assert custom_json.is_file()
+    loaded_canvas = json.loads(custom_json.read_text(encoding="utf-8"))
+    validate_json_ast_schema(loaded_canvas)
+    assert loaded_canvas["pages"][0]["width"] == 612.0
+
+    # Encrypted PDF -> JSON via CLI -p and API file-to-file
+    enc_pdf = work_dir / "secret.pdf"
+    enc_pdf.write_bytes(build_encrypted_pdf(b"jsonpass"))
+    enc_json = work_dir / "secret.json"
+    assert main([str(enc_pdf), "-f", "json", "-p", "jsonpass", "-o", str(enc_json)]) == 0
+    assert "Confidential Financial Data" in enc_json.read_text(encoding="utf-8")
+
+    api_out = work_dir / "api_ast.json"
+    convert(in_pdf, output_format="json", output_path=api_out)
+    assert api_out.is_file()
+
 
 

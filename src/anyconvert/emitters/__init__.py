@@ -6,6 +6,7 @@ from anyconvert.emitters.base import BaseEmitter, ConversionMode
 from anyconvert.emitters.docx import DocxEmitter
 from anyconvert.emitters.epub import EpubEmitter
 from anyconvert.emitters.html import HTMLEmitter
+from anyconvert.emitters.json_ast import JsonEmitter
 from anyconvert.emitters.latex import LatexEmitter
 from anyconvert.emitters.md import MarkdownDialect, MarkdownEmitter
 from anyconvert.emitters.odp import OdpEmitter
@@ -26,6 +27,7 @@ __all__ = [
     "DocxEmitter",
     "EpubEmitter",
     "HTMLEmitter",
+    "JsonEmitter",
     "LatexEmitter",
     "MarkdownEmitter",
     "MarkdownDialect",
