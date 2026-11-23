@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from anyconvert.emitters.base import BaseEmitter, ConversionMode
+from anyconvert.emitters.csv import CsvEmitter, ExtractedTable
 from anyconvert.emitters.docx import DocxEmitter
 from anyconvert.emitters.epub import EpubEmitter
 from anyconvert.emitters.html import HTMLEmitter
@@ -24,6 +25,8 @@ from anyconvert.emitters.typst import TypstEmitter
 __all__ = [
     "BaseEmitter",
     "ConversionMode",
+    "CsvEmitter",
+    "ExtractedTable",
     "DocxEmitter",
     "EpubEmitter",
     "HTMLEmitter",

@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from anyconvert.common.reader import ByteReader
 from anyconvert.emitters.base import BaseEmitter, ConversionMode
+from anyconvert.emitters.csv import CsvEmitter
 from anyconvert.emitters.docx import DocxEmitter
 from anyconvert.emitters.epub import EpubEmitter
 from anyconvert.emitters.html import HTMLEmitter
@@ -54,6 +55,7 @@ SUPPORTED_FORMATS: Set[str] = {
     "typst",
     "latex",
     "json",
+    "csv",
 }
 
 
@@ -156,6 +158,8 @@ def _get_emitter(
         )
     elif fmt == "json":
         return JsonEmitter()
+    elif fmt == "csv":
+        return CsvEmitter()
     raise UnsupportedFormatError(
         format_name=output_format,
         supported_formats=sorted(list(SUPPORTED_FORMATS)),
@@ -265,7 +269,7 @@ def convert(
     Args:
         input_path: File path, Path object, raw PDF bytes, ByteReader, or DocumentIR.
         output_format: Target format ('docx', 'pptx', 'odt', 'odp', 'txt', 'svg',
-            'html', 'md', 'epub', 'rtf', 'typst', 'latex', 'json').
+            'html', 'md', 'epub', 'rtf', 'typst', 'latex', 'json', 'csv').
         output_path: Optional file path to write output. If None, output is only returned as bytes.
         mode: Layout mode, either ConversionMode.FLOW / 'flow' or ConversionMode.CANVAS / 'canvas'.
         password: Optional password if the PDF document is encrypted.
@@ -311,7 +315,7 @@ def convert_bytes(
     Args:
         pdf_bytes: Raw bytes of the PDF file.
         output_format: Target format ('docx', 'pptx', 'odt', 'odp', 'txt', 'svg',
-            'html', 'md', 'epub', 'rtf', 'typst', 'latex', 'json').
+            'html', 'md', 'epub', 'rtf', 'typst', 'latex', 'json', 'csv').
         mode: Layout mode ('flow' or 'canvas').
         password: Optional password if the PDF document is encrypted.
         extract_images: Optional image extraction directory path or True for default 'images/'.
