@@ -38,9 +38,9 @@ from anyconvert.exceptions import (
 from anyconvert.ir.model import DocumentIR, DocumentPage
 from anyconvert.pdf.document import PDFDocument
 
-__version__ = "0.1.14"
+__version__ = "0.1.15"
 __author__ = "Barın Güzeldemirci (word-sys)"
-__license__ = "GPL-3.0-or-later"
+__license__ = "Apache-2.0"
 
 __all__ = [
     "__version__",

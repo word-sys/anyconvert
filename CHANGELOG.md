@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.15] - 2026-11-24
+
+### Changed
+- **License Migration to Apache-2.0**: Relicensed `anyconvert` from `GPL-3.0-or-later` to **Apache License, Version 2.0 (`Apache-2.0`)**, updating `LICENSE`, `pyproject.toml` trove classifiers, `anyconvert.__license__`, and `README.md`.
+
+---
+
 ## [0.1.14] - 2026-11-24
 
 ### Added

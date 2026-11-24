@@ -39,9 +39,9 @@ class TestScaffoldingAndPackaging(unittest.TestCase):
 
     def test_package_metadata(self) -> None:
         """Verify top-level package metadata."""
-        self.assertEqual(anyconvert.__version__, "0.1.14")
+        self.assertEqual(anyconvert.__version__, "0.1.15")
         self.assertTrue(isinstance(anyconvert.__author__, str))
-        self.assertTrue(isinstance(anyconvert.__license__, str))
+        self.assertEqual(anyconvert.__license__, "Apache-2.0")
 
     def test_py_typed_exists(self) -> None:
         """Verify PEP 561 marker file exists."""
