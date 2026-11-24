@@ -64,6 +64,18 @@ def create_parser() -> argparse.ArgumentParser:
         help="Extract embedded images to DIR (defaults to 'images/' next to output) and link in Markdown, Typst, and LaTeX.",
     )
     parser.add_argument(
+        "--table-index",
+        type=int,
+        default=None,
+        metavar="INDEX",
+        help="Extract only the N-th detected table (0-based index).",
+    )
+    parser.add_argument(
+        "--export-tables-only",
+        action="store_true",
+        help="Export only detected tables (omit non-table prose or fallback text sheets).",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -125,6 +137,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"[anyconvert] Input: {input_path}, Output: {output_path}, "
             f"Format: {args.format}, Mode: {args.mode}"
             + (f", ExtractImages: {args.extract_images or 'images'}" if extract_images_arg else "")
+            + (f", TableIndex: {args.table_index}" if args.table_index is not None else "")
+            + (", ExportTablesOnly: True" if args.export_tables_only else "")
             + "\n"
         )
 
@@ -139,6 +153,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             mode=args.mode,
             password=args.password,
             extract_images=extract_images_arg,
+            table_index=args.table_index,
+            export_tables_only=args.export_tables_only,
         )
 
         if args.verbose:

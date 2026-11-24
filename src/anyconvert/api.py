@@ -32,10 +32,11 @@ from anyconvert.emitters.xlsx import XlsxEmitter
 from anyconvert.exceptions import (
     AnyConvertError,
     PDFSyntaxError,
+    SerializationError,
     UnsupportedFormatError,
 )
 from anyconvert.ir.builder import DocumentIRBuilder
-from anyconvert.ir.model import DocumentIR, DocumentPage
+from anyconvert.ir.model import BlockNode, DocumentIR, DocumentPage, Table
 from anyconvert.layout.cluster import cluster_characters_to_words, cluster_words_to_lines
 from anyconvert.layout.flow import detect_repeating_headers_footers
 from anyconvert.pdf.content.interpreter import ContentInterpreter, InterpreterOutput
@@ -122,6 +123,8 @@ def _get_emitter(
     output_format: str,
     image_dir: Optional[Union[str, pathlib.Path]] = None,
     image_link_prefix: Optional[str] = None,
+    table_index: Optional[int] = None,
+    export_tables_only: bool = False,
 ) -> BaseEmitter:
     """Instantiate and return the appropriate emitter for the requested format."""
     fmt = output_format.lower().strip().lstrip(".")
@@ -161,13 +164,71 @@ def _get_emitter(
     elif fmt == "json":
         return JsonEmitter()
     elif fmt == "csv":
-        return CsvEmitter()
+        return CsvEmitter(
+            table_index=table_index,
+            export_tables_only=export_tables_only,
+        )
     elif fmt == "xlsx":
-        return XlsxEmitter()
+        return XlsxEmitter(
+            table_index=table_index,
+            export_tables_only=export_tables_only,
+        )
     raise UnsupportedFormatError(
         format_name=output_format,
         supported_formats=sorted(list(SUPPORTED_FORMATS)),
     )
+
+
+def _filter_document_ir_tables(
+    doc_ir: DocumentIR,
+    *,
+    table_index: Optional[int] = None,
+    export_tables_only: bool = False,
+) -> DocumentIR:
+    """Filter a DocumentIR to retain only Table blocks (or a specific table_index)."""
+    if not export_tables_only and table_index is None:
+        return doc_ir
+
+    total_tables = sum(
+        1 for page in doc_ir.pages for blk in page.blocks if isinstance(blk, Table)
+    )
+    if total_tables == 0:
+        if table_index is not None:
+            raise SerializationError(
+                f"No tables found in document (requested table_index={table_index})"
+            )
+        raise SerializationError("No tables found in document (--export-tables-only)")
+
+    if table_index is not None and (table_index < 0 or table_index >= total_tables):
+        raise SerializationError(
+            f"table_index {table_index} out of range (found {total_tables} table(s): 0..{total_tables - 1})"
+        )
+
+    filtered_pages: List[DocumentPage] = []
+    running_idx = 0
+    for page in doc_ir.pages:
+        kept_blocks: List[BlockNode] = []
+        for blk in page.blocks:
+            if isinstance(blk, Table):
+                if table_index is None or running_idx == table_index:
+                    kept_blocks.append(blk)
+                running_idx += 1
+        if kept_blocks:
+            filtered_pages.append(
+                DocumentPage(
+                    page_number=len(filtered_pages) + 1,
+                    width=page.width,
+                    height=page.height,
+                    margin_top=page.margin_top,
+                    margin_bottom=page.margin_bottom,
+                    margin_left=page.margin_left,
+                    margin_right=page.margin_right,
+                    blocks=kept_blocks,
+                    header=None,
+                    footer=None,
+                )
+            )
+    return DocumentIR(pages=filtered_pages, metadata=dict(doc_ir.metadata))
 
 
 def pdf_to_document_ir(
@@ -267,6 +328,8 @@ def convert(
     mode: Union[ConversionMode, str] = ConversionMode.FLOW,
     password: str = "",
     extract_images: Optional[Union[bool, str, pathlib.Path]] = None,
+    table_index: Optional[int] = None,
+    export_tables_only: bool = False,
 ) -> bytes:
     """Convert a PDF document into a target document format.
 
@@ -279,6 +342,8 @@ def convert(
         password: Optional password if the PDF document is encrypted.
         extract_images: When truthy or a directory path, write extracted images to disk and link
             them in Markdown, Typst, and LaTeX outputs.
+        table_index: Optional 0-based index to export only a specific table.
+        export_tables_only: When True, export only detected tables and fail if no tables exist.
 
     Returns:
         bytes: Converted document binary payload.
@@ -294,9 +359,18 @@ def convert(
         output_format,
         image_dir=img_dir,
         image_link_prefix=img_prefix,
+        table_index=table_index,
+        export_tables_only=export_tables_only,
     )
 
     doc_ir = pdf_to_document_ir(input_path, password=password, mode=conv_mode)
+    fmt_norm = output_format.lower().strip().lstrip(".")
+    if fmt_norm not in ("csv", "xlsx") and (export_tables_only or table_index is not None):
+        doc_ir = _filter_document_ir_tables(
+            doc_ir,
+            table_index=table_index,
+            export_tables_only=export_tables_only,
+        )
     result_bytes = emitter.emit(doc_ir, mode=conv_mode)
 
     if output_path is not None:
@@ -313,6 +387,8 @@ def convert_bytes(
     mode: Union[ConversionMode, str] = ConversionMode.FLOW,
     password: str = "",
     extract_images: Optional[Union[bool, str, pathlib.Path]] = None,
+    table_index: Optional[int] = None,
+    export_tables_only: bool = False,
 ) -> bytes:
     """Convert raw in-memory PDF bytes into target format bytes.
 
@@ -323,6 +399,8 @@ def convert_bytes(
         mode: Layout mode ('flow' or 'canvas').
         password: Optional password if the PDF document is encrypted.
         extract_images: Optional image extraction directory path or True for default 'images/'.
+        table_index: Optional 0-based index to export only a specific table.
+        export_tables_only: When True, export only detected tables and fail if no tables exist.
 
     Returns:
         bytes: Converted document binary payload.
@@ -334,6 +412,8 @@ def convert_bytes(
         mode=mode,
         password=password,
         extract_images=extract_images,
+        table_index=table_index,
+        export_tables_only=export_tables_only,
     )
 
 

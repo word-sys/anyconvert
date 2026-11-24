@@ -510,3 +510,189 @@ def test_xlsx_api_and_cli_end_to_end(tmp_path: pathlib.Path) -> None:
     convert(in_pdf, output_format="xlsx", output_path=api_xlsx)
     assert api_xlsx.is_file()
 
+
+def _build_pdf_with_two_tables_and_prose() -> bytes:
+    """Build a 2-page financial report PDF with narrative prose and two distinct vector-ruled tables."""
+    stream_p1 = (
+        "\n".join(
+            [
+                "BT /F1 12 Tf 50 730 Td (Executive Commentary: Q4 Financial Review) Tj ET",
+                "50 690 m 350 690 l S",
+                "50 655 m 350 655 l S",
+                "50 620 m 350 620 l S",
+                "50 620 m 50 690 l S",
+                "200 620 m 200 690 l S",
+                "350 620 m 350 690 l S",
+                "BT /F1 10 Tf 60 668 Td (Metric) Tj ET",
+                "BT /F1 10 Tf 210 668 Td (Q4) Tj ET",
+                "BT /F1 10 Tf 60 633 Td (Revenue) Tj ET",
+                "BT /F1 10 Tf 210 633 Td ($500k) Tj ET",
+            ]
+        )
+        + "\n"
+    ).encode("ascii")
+
+    stream_p2 = (
+        "\n".join(
+            [
+                "BT /F1 11 Tf 50 730 Td (Regional Breakdown Notes) Tj ET",
+                "50 690 m 350 690 l S",
+                "50 655 m 350 655 l S",
+                "50 620 m 350 620 l S",
+                "50 620 m 50 690 l S",
+                "200 620 m 200 690 l S",
+                "350 620 m 350 690 l S",
+                "BT /F1 10 Tf 60 668 Td (Account) Tj ET",
+                "BT /F1 10 Tf 210 668 Td (Balance) Tj ET",
+                "BT /F1 10 Tf 60 633 Td (Cash) Tj ET",
+                "BT /F1 10 Tf 210 633 Td ($120k) Tj ET",
+            ]
+        )
+        + "\n"
+    ).encode("ascii")
+
+    objs: List[bytes] = [
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        b"2 0 obj\n<< /Type /Pages /Count 2 /Kids [3 0 R 5 0 R] >>\nendobj\n",
+        (
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Contents 4 0 R /Resources << /Font << /F1 << /Type /Font "
+            b"/Subtype /Type1 /BaseFont /Helvetica >> >> >> >>\nendobj\n"
+        ),
+        (
+            f"4 0 obj\n<< /Length {len(stream_p1)} >>\nstream\n".encode("ascii")
+            + stream_p1
+            + b"endstream\nendobj\n"
+        ),
+        (
+            b"5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Contents 6 0 R /Resources << /Font << /F1 << /Type /Font "
+            b"/Subtype /Type1 /BaseFont /Helvetica >> >> >> >>\nendobj\n"
+        ),
+        (
+            f"6 0 obj\n<< /Length {len(stream_p2)} >>\nstream\n".encode("ascii")
+            + stream_p2
+            + b"endstream\nendobj\n"
+        ),
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offs = [0]
+    for obj in objs:
+        offs.append(len(out))
+        out.extend(obj)
+    xref_pos = len(out)
+    out.extend(f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode("ascii"))
+    for o in offs[1:]:
+        out.extend(f"{o:010d} 00000 n \n".encode("ascii"))
+    out.extend(
+        f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(out)
+
+
+def _build_prose_only_pdf() -> bytes:
+    """Build a valid single-page PDF containing only narrative text and zero tables."""
+    stream = b"BT /F1 12 Tf 72 700 Td (Narrative report without any tables.) Tj ET\n"
+    objs: List[bytes] = [
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        b"2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        (
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Contents 4 0 R /Resources << /Font << /F1 << /Type /Font "
+            b"/Subtype /Type1 /BaseFont /Helvetica >> >> >> >>\nendobj\n"
+        ),
+        f"4 0 obj\n<< /Length {len(stream)} >>\nstream\n".encode("ascii") + stream + b"endstream\nendobj\n",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offs = [0]
+    for obj in objs:
+        offs.append(len(out))
+        out.extend(obj)
+    xref_pos = len(out)
+    out.extend(f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode("ascii"))
+    for o in offs[1:]:
+        out.extend(f"{o:010d} 00000 n \n".encode("ascii"))
+    out.extend(
+        f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(out)
+
+
+def test_cli_and_api_table_index_and_export_tables_only(
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify --table-index and --export-tables-only flags across CSV, XLSX, MD, and JSON."""
+    import json
+
+    report_pdf = tmp_path / "financial_report.pdf"
+    report_pdf.write_bytes(_build_pdf_with_two_tables_and_prose())
+
+    # 1. CLI --table-index 0 and --table-index 1 with CSV
+    t0_csv = tmp_path / "t0.csv"
+    t1_csv = tmp_path / "t1.csv"
+    assert main([str(report_pdf), "-f", "csv", "--table-index", "0", "-o", str(t0_csv), "-v"]) == 0
+    assert main([str(report_pdf), "-f", "csv", "--table-index", "1", "-o", str(t1_csv)]) == 0
+
+    rows_0 = list(csv.reader(io.StringIO(t0_csv.read_text(encoding="utf-8"))))
+    rows_1 = list(csv.reader(io.StringIO(t1_csv.read_text(encoding="utf-8"))))
+    assert rows_0 == [["Metric", "Q4"], ["Revenue", "$500k"]]
+    assert rows_1 == [["Account", "Balance"], ["Cash", "$120k"]]
+
+    # Out-of-range --table-index exits with non-zero status code
+    assert main([str(report_pdf), "-f", "csv", "--table-index", "5", "-o", str(tmp_path / "bad.csv")]) == 1
+
+    # 2. CLI --table-index 1 with XLSX
+    t1_xlsx = tmp_path / "t1.xlsx"
+    assert main([str(report_pdf), "-f", "xlsx", "--table-index", "1", "-o", str(t1_xlsx)]) == 0
+    with zipfile.ZipFile(t1_xlsx, "r") as zf:
+        wb = ET.fromstring(zf.read("xl/workbook.xml"))
+        sheets = wb.findall(f"{{{SPREADSHEETML_NS}}}sheets/{{{SPREADSHEETML_NS}}}sheet")
+        assert len(sheets) == 1
+        assert sheets[0].attrib["name"] == "Table 2"
+        sst = zf.read("xl/sharedStrings.xml").decode("utf-8")
+        assert "Cash" in sst
+        assert "Revenue" not in sst
+
+    # 3. CLI --export-tables-only with Markdown and JSON strips narrative prose
+    tables_md = tmp_path / "tables_only.md"
+    assert main([str(report_pdf), "-f", "md", "--export-tables-only", "-o", str(tables_md), "-v"]) == 0
+    md_text = tables_md.read_text(encoding="utf-8")
+    assert "Executive Commentary" not in md_text
+    assert "Regional Breakdown Notes" not in md_text
+    assert "Revenue" in md_text
+    assert "Cash" in md_text
+
+    tables_json = tmp_path / "tables_only.json"
+    assert main([str(report_pdf), "-f", "json", "--export-tables-only", "--table-index", "0", "-o", str(tables_json)]) == 0
+    ast = json.loads(tables_json.read_text(encoding="utf-8"))
+    assert len(ast["pages"]) == 1
+    assert len(ast["pages"][0]["blocks"]) == 1
+    assert ast["pages"][0]["blocks"][0]["type"] == "table"
+
+    captured = capsys.readouterr()
+    assert "TableIndex: 0" in captured.err
+    assert "ExportTablesOnly: True" in captured.err
+
+    # 4. Prose-only PDF behavior with --export-tables-only
+    prose_pdf = tmp_path / "prose.pdf"
+    prose_pdf.write_bytes(_build_prose_only_pdf())
+
+    # Without --export-tables-only, XLSX succeeds with fallback 'Document' sheet
+    prose_xlsx = tmp_path / "prose.xlsx"
+    assert main([str(prose_pdf), "-f", "xlsx", "-o", str(prose_xlsx)]) == 0
+    assert prose_xlsx.is_file()
+
+    # With --export-tables-only, CLI exits 1 and Python API raises SerializationError
+    assert main([str(prose_pdf), "-f", "xlsx", "--export-tables-only", "-o", str(tmp_path / "fail.xlsx")]) == 1
+    assert main([str(prose_pdf), "-f", "csv", "--export-tables-only", "-o", str(tmp_path / "fail.csv")]) == 1
+    assert main([str(prose_pdf), "-f", "md", "--export-tables-only", "-o", str(tmp_path / "fail.md")]) == 1
+
+    with pytest.raises(SerializationError, match="No tables found"):
+        convert_bytes(_build_prose_only_pdf(), output_format="csv", export_tables_only=True)
+    with pytest.raises(SerializationError, match="No tables found"):
+        convert_bytes(_build_prose_only_pdf(), output_format="xlsx", export_tables_only=True)
+    with pytest.raises(SerializationError, match="No tables found"):
+        convert_bytes(_build_prose_only_pdf(), output_format="md", export_tables_only=True)
+
+

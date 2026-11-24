@@ -324,6 +324,7 @@ class CsvEmitter(BaseEmitter):
         "table_index",
         "merge_multipage",
         "fill_merged_cells",
+        "export_tables_only",
         "delimiter",
         "lineterminator",
         "utf8_bom",
@@ -334,6 +335,7 @@ class CsvEmitter(BaseEmitter):
         table_index: Optional[int] = None,
         merge_multipage: bool = True,
         fill_merged_cells: bool = False,
+        export_tables_only: bool = False,
         delimiter: str = ",",
         lineterminator: str = "\r\n",
         utf8_bom: bool = False,
@@ -343,6 +345,7 @@ class CsvEmitter(BaseEmitter):
         self.table_index: Optional[int] = table_index
         self.merge_multipage: bool = merge_multipage
         self.fill_merged_cells: bool = fill_merged_cells
+        self.export_tables_only: bool = export_tables_only
         self.delimiter: str = delimiter
         self.lineterminator: str = lineterminator
         self.utf8_bom: bool = utf8_bom
@@ -375,6 +378,8 @@ class CsvEmitter(BaseEmitter):
             selected = tables
 
         if not selected:
+            if self.export_tables_only:
+                raise SerializationError("No tables found in document (--export-tables-only)")
             return ""
 
         chunks = [
