@@ -1,8 +1,8 @@
 """anyconvert: Enterprise document conversion engine in pure Python.
 
 High-performance, zero-dependency PDF document conversion to DOCX, PPTX, ODT, ODP,
-TXT, SVG, HTML, Markdown, EPUB, RTF, Typst, and LaTeX with mathematical precision
-and dual-mode layout reconstruction.
+TXT, SVG, HTML, Markdown, EPUB, RTF, Typst, LaTeX, JSON AST, CSV, and XLSX with
+mathematical precision and dual-mode layout reconstruction.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from anyconvert.exceptions import (
 from anyconvert.ir.model import DocumentIR, DocumentPage
 from anyconvert.pdf.document import PDFDocument
 
-__version__ = "0.1.13"
+__version__ = "0.1.14"
 __author__ = "Barın Güzeldemirci (word-sys)"
 __license__ = "GPL-3.0-or-later"
 

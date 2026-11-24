@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.14] - 2026-11-24
+
+### Added
+- **DocumentIR JSON AST Engine (`-f json`)**: Added pure-Python RFC 8259 JSON AST serializer, deserializer, and strict schema validator (`anyconvert.ir.serializer`, `JsonEmitter`) encoding full document trees (page geometry, margins, headers/footers, bounding boxes, fonts, RGBA + hex colors, styled runs, nested tables, vector paths, and Base64-encoded images with `include_images=False` option for lightweight AI/RAG pipelines). Exposed `DocumentIR.to_json()`, `to_dict()`, `DocumentIR.from_json()`, and `DocumentIR.from_dict()` convenience methods alongside `-f json` in CLI and Python API.
+- **High-Precision Table Extraction & RFC 4180 CSV Emitter (`-f csv`)**: Added `CsvEmitter` and `extract_tables_from_ir()` (`anyconvert.emitters.csv`) with 2D occupancy-grid `col_span`/`row_span` normalization, automatic multi-page continuous table merging with repeated-header deduplication, multi-table indexing, nested cell flattening, and strict RFC 4180 CRLF quoting (with configurable delimiter and optional UTF-8 BOM).
+- **Zero-Dependency XLSX Spreadsheet Generator (`-f xlsx`)**: Added pure-Python ISO/IEC 29500-2 SpreadsheetML packager (`anyconvert.packaging.xlsx.XLSXPackage`) and emitter (`anyconvert.emitters.xlsx.XlsxEmitter`) generating native Excel and LibreOffice Calc `.xlsx` workbooks with multi-sheet table export, deduplicated `xl/sharedStrings.xml`, IEEE-754 numeric cell typing (preserving leading-zero string codes), auto-computed `<cols>` column widths, header/data cell styling, and validated non-overlapping `<mergeCells><mergeCell ref="..."/></mergeCells>` ranges.
+- **Flexible Table Extraction Flags (`--table-index`, `--export-tables-only`)**: Added `--table-index INDEX` and `--export-tables-only` to CLI and Python API (`convert()`, `convert_bytes()`) supporting targeted table extraction and table-only filtering across CSV, XLSX, JSON AST, Markdown, HTML, and document emitters.
+
+### Changed
+- **CLI & API Format Expansion**: Registered `json`, `csv`, and `xlsx` across `SUPPORTED_FORMATS`, `_get_emitter()`, and CLI `-f/--format` choices (15 supported target formats total).
+
+---
+
 ## [0.1.13] - 2026-11-22
 
 ### Added

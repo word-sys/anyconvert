@@ -4,8 +4,8 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "anyconvert"
-version = "0.1.13"
-description = "Native PDF-to-Office, Web, Markdown, EPUB, RTF, Typst, and LaTeX document conversion engine"
+version = "0.1.14"
+description = "Native PDF-to-Office, Web, Markdown, EPUB, RTF, Academic, and Structured Data (JSON/CSV/XLSX) conversion engine"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
@@ -28,6 +28,9 @@ keywords = [
     "rtf",
     "typst",
     "latex",
+    "json",
+    "csv",
+    "xlsx",
     "zero-dependency",
     "document-processing",
 ]

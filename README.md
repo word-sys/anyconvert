@@ -6,7 +6,7 @@
 
 **Python document conversion engine**
 
-`anyconvert` converts PDF documents into **DOCX**, **PPTX**, **ODT**, **ODP**, **TXT**, **SVG**, **HTML5**, **Markdown (GFM)**, **EPUB 3**, **RTF**, **Typst**, and **LaTeX** using only the Python standard library.
+`anyconvert` converts PDF documents into **DOCX**, **PPTX**, **ODT**, **ODP**, **TXT**, **SVG**, **HTML5**, **Markdown (GFM)**, **EPUB 3**, **RTF**, **Typst**, **LaTeX**, **JSON AST**, **CSV**, and **XLSX** using only the Python standard library.
 
 ---
 
@@ -32,6 +32,10 @@
 - **Academic & Scientific Publishing (Typst & LaTeX + Math Heuristics)**:
   - Generates clean, compilable **Typst** (`.typ`) and **LaTeX** (`.tex`) source with page geometry, typography setup, nested lists, code blocks, native `#table(...)` / `booktabs` tables, and `--extract-images` project-relative figures.
   - Heuristic mathematical formula extraction detects explicit and geometric superscript/subscript baseline shifts and decodes `Symbol`, `CMSY`, `CMMI`, `CMEX`, `MSBM`, and Unicode Greek/math symbols into `$x^2$` / `$\alpha + \beta \le \gamma$` (LaTeX) and `$x^2$` / `$alpha + beta <= gamma$` (Typst).
+- **Structured Data & Table Extraction (JSON AST, CSV, XLSX)**:
+  - **JSON AST (`-f json`, `DocumentIR.to_json()`)**: Lossless, schema-validated RFC 8259 JSON AST containing page geometry, bounding boxes, fonts, RGBA/hex colors, text runs, nested tables, vector paths, and Base64 images for downstream AI/RAG pipelines.
+  - **RFC 4180 CSV (`-f csv`) & Native XLSX (`-f xlsx`)**: 2D occupancy-grid `col_span`/`row_span` normalization, multi-page continuous table merging with repeated-header deduplication, and zero-dependency ISO/IEC 29500-2 SpreadsheetML `.xlsx` workbooks with shared strings, column widths, numeric typing, and `<mergeCell>` ranges.
+  - **Targeted Table Tooling**: Extract specific tables via `--table-index N` or strip narrative prose/fallback sheets via `--export-tables-only`.
 - **Terminal-Friendly Plaintext Canvas**:
   - 2D character grid renderer (`-f txt -m canvas`) with junction-merging Unicode box-drawing (`┌─┐│└─┘┬┴├┤┼`) for table grids, image frames, and vector lines.
 - **Comprehensive PDF Coverage**:
@@ -41,7 +45,7 @@
   - Modern image support: In-memory PNG extraction (ISO/IEC 15948), JPEG, JPEG 2000, and native WebP (RIFF/VP8/VP8L/VP8X).
   - Full typography engine: Type 1, TrueType/OpenType SFNT tables, CFF/Type 2 CharStrings, CIDFonts, ToUnicode CMaps, Adobe Glyph List, and dynamic `/Differences` encodings.
 - **Standards-Compliant Packaging**:
-  - **OPC (ISO/IEC 29500-2)**: Generates valid WordprocessingML (`.docx`) and PresentationML (`.pptx`) packages with complete `[Content_Types].xml` and `.rels` hierarchies.
+  - **OPC (ISO/IEC 29500-2)**: Generates valid WordprocessingML (`.docx`), PresentationML (`.pptx`), and SpreadsheetML (`.xlsx`) packages with complete `[Content_Types].xml` and `.rels` hierarchies.
   - **ODF (ISO/IEC 26300)**: Generates compliant OpenDocument Text (`.odt`) and Presentation (`.odp`) archives with uncompressed `mimetype` headers at byte offset 0.
   - **W3C SVG, HTML5 & EPUB 3.3**: Standards-compliant vector graphics, self-contained HTML5 reports, and validated EPUB 3.3 OCF digital books.
 
@@ -61,6 +65,9 @@
 | **Rich Text Format** | `.rtf` | Styled paragraphs, Unicode `\uN\'xx`, span tables, hex `\pict` images | Reflowable RTF 1.9.1 | Microsoft RTF 1.9.1 |
 | **Typst** | `.typ` | `#set page/text`, `#table`, math heuristics, `--extract-images` | Reflowable Typst source | Typst Markup |
 | **LaTeX** | `.tex` | `geometry`, `graphicx`, `booktabs`, `amsmath`, math heuristics | Reflowable LaTeX source | LaTeX2e / TeX Live |
+| **JSON AST** | `.json` | Schema-validated AST with boxes, fonts, colors, tables, Base64 images | Canvas-mode AST coordinates | RFC 8259 JSON (Schema v1.0) |
+| **CSV Tables** | `.csv` | Multi-page table merging, header dedup, `--table-index` | Extracted 2D table grids | RFC 4180 CSV |
+| **Microsoft Excel** | `.xlsx` | Multi-sheet tables, shared strings, `<cols>`, `<mergeCell>` | Native SpreadsheetML workbook | ISO/IEC 29500-2 (OPC) |
 | **Scalable Vector Graphics** | `.svg` | Vertically stacked vector view | Individual SVG vector pages with curves & text | W3C SVG 1.1 |
 | **Standalone HTML5** | `.html` | Semantic `<article>`, `<p>`, `<table>` | Absolute coordinate `<div>` & `<svg>` canvas | W3C HTML5 (Offline Data URI) |
 
@@ -102,16 +109,29 @@ anyconvert [OPTIONS] INPUT_PDF
 
 | Flag | Argument | Description | Default |
 | :--- | :--- | :--- | :--- |
-| `-f`, `--format` | `docx\|pptx\|odt\|odp\|txt\|svg\|html\|md\|epub\|rtf\|typst\|latex` | Target document format | `docx` |
+| `-f`, `--format` | `docx\|pptx\|odt\|odp\|txt\|svg\|html\|md\|epub\|rtf\|typst\|latex\|json\|csv\|xlsx` | Target document format | `docx` |
 | `-o`, `--output` | `PATH` | Output destination file path | `{input_basename}.{ext}` |
 | `-m`, `--mode` | `flow\|canvas` | Layout reconstruction mode (`canvas` for 1:1 visual match) | `flow` |
 | `-p`, `--password` | `STRING` | Decryption password for encrypted PDFs | `""` |
 | `--extract-images` | `[DIR]` | Extract embedded images to `DIR` (defaults to `images/`) and link in Markdown, Typst, and LaTeX | `None` |
+| `--table-index` | `INDEX` | Extract only the N-th detected table (0-based index) | `None` |
+| `--export-tables-only` | | Export only detected tables (omit non-table prose or fallback text sheets) | `False` |
 | `-v`, `--verbose` | | Enable diagnostic logging | `False` |
 | `--version` | | Print version and exit | |
 | `-h`, `--help` | | Show help message and exit | |
 
 ### CLI Examples
+
+**Export Document AST to Structured JSON (AI / RAG Pipelines):**
+```bash
+anyconvert report.pdf -f json -o ast.json
+```
+
+**Extract Tables from Financial Report to Native Excel (.xlsx) or CSV:**
+```bash
+anyconvert statement.pdf -f xlsx -o statement.xlsx --export-tables-only
+anyconvert statement.pdf -f csv --table-index 0 -o table0.csv
+```
 
 **Convert Research Paper to Typst (with Extracted Figures & Math):**
 ```bash
@@ -243,6 +263,25 @@ convert(
     output_format="rtf",
     output_path="contract.rtf",
 )
+
+# Structured data & table export (JSON AST, CSV, native XLSX)
+convert(
+    input_path="report.pdf",
+    output_format="json",
+    output_path="ast.json",
+)
+convert(
+    input_path="statement.pdf",
+    output_format="xlsx",
+    output_path="statement.xlsx",
+    export_tables_only=True,
+)
+convert(
+    input_path="statement.pdf",
+    output_format="csv",
+    output_path="table0.csv",
+    table_index=0,
+)
 ```
 
 ### In-Memory Byte Conversion (`convert_bytes`)
@@ -276,6 +315,10 @@ print(f"Metadata: {doc_ir.metadata}")
 
 for page in doc_ir.pages:
     print(f"Page {page.page_number} ({page.width}x{page.height} pt): {len(page.blocks)} blocks")
+
+# Serialize DocumentIR to schema-validated JSON AST and round-trip back
+ast_json = doc_ir.to_json(indent=2)
+restored = doc_ir.from_json(ast_json)
 ```
 
 ---
@@ -309,11 +352,11 @@ for page in doc_ir.pages:
                                     ▼
                          [ DocumentIR Builder ]
                                     │
-       ┌───────────────────┬────────┴──────┬──────────────┬─────────────────┬───────────────────┐
-       ▼                   ▼               ▼              ▼                 ▼
-[ DOCX / PPTX ]     [ ODT / ODP ]    [ TXT / MD ]   [ HTML5 / SVG / ]  [ RTF 1.9.1 /       ]
-  (DrawingML)       (ISO/IEC 26300)  (Canvas / GFM) [   EPUB 3      ]  [ Typst / LaTeX     ]
-                                                    (W3C Web / OCF)    (Academic & Math)
+       ┌─────────────────┬──────────┴───────┬──────────────┬─────────────────┬──────────────────┬──────────────────┐
+       ▼                 ▼                  ▼              ▼                 ▼                  ▼
+[ DOCX / PPTX ]   [ ODT / ODP ]      [ TXT / MD ]   [ HTML5 / SVG / ]  [ RTF 1.9.1 /    ]  [ JSON AST /      ]
+  (DrawingML)     (ISO/IEC 26300)    (Canvas / GFM) [   EPUB 3      ]  [ Typst / LaTeX  ]  [ CSV / XLSX      ]
+                                                    (W3C Web / OCF)    (Academic & Math)   (Data & Tables)
 ```
 
 ---
