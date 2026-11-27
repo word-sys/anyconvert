@@ -9,11 +9,78 @@ Adheres to OASIS OpenDocument v1.2 / v1.3 Part 1 §10.3 (Vector Graphics) and §
 
 from __future__ import annotations
 
-from typing import List
+from dataclasses import dataclass
+from typing import Dict, List, Sequence, Tuple
 
 from anyconvert.common.color import Color
 from anyconvert.emitters.base import xml_escape
-from anyconvert.ir.model import VectorBlock
+from anyconvert.ir.model import DocumentPage, VectorBlock
+
+
+@dataclass(frozen=True, slots=True)
+class OdpSlideLayoutSpec:
+    """Page layout and master-page specification for an ODP slide dimension."""
+
+    layout_name: str
+    master_name: str
+    width_pt: float
+    height_pt: float
+    orientation: str  # 'portrait' or 'landscape'
+
+
+def compute_odp_page_orientation(width_pt: float, height_pt: float) -> str:
+    """Return OASIS ODF style:print-orientation ('portrait' or 'landscape')."""
+    return "portrait" if height_pt > width_pt + 1.0 else "landscape"
+
+
+def build_odp_slide_layouts(
+    pages: Sequence[DocumentPage],
+) -> Tuple[List[OdpSlideLayoutSpec], List[str]]:
+    """Build deduplicated ODP page-layout/master-page specs and per-page master names.
+
+    Each distinct (width, height) pair across the document receives its own
+    <style:page-layout> and <style:master-page> so portrait, landscape, square,
+    and mixed-orientation slides render with exact aspect ratios in LibreOffice Impress.
+    """
+    layouts: List[OdpSlideLayoutSpec] = []
+    seen: Dict[Tuple[float, float], str] = {}
+    page_masters: List[str] = []
+
+    for page in pages:
+        w = max(1.0, round(float(page.width), 1))
+        h = max(1.0, round(float(page.height), 1))
+        key = (w, h)
+        if key not in seen:
+            idx = len(layouts) + 1
+            layout_name = f"PM{idx}"
+            master_name = "Default" if idx == 1 else f"MasterPage{idx}"
+            orientation = compute_odp_page_orientation(w, h)
+            layouts.append(
+                OdpSlideLayoutSpec(
+                    layout_name=layout_name,
+                    master_name=master_name,
+                    width_pt=w,
+                    height_pt=h,
+                    orientation=orientation,
+                )
+            )
+            seen[key] = master_name
+        page_masters.append(seen[key])
+
+    return layouts, page_masters
+
+
+def build_odp_page_layout_xml(spec: OdpSlideLayoutSpec) -> str:
+    """Generate an ODF <style:page-layout> element with explicit print-orientation."""
+    return (
+        f'    <style:page-layout style:name="{spec.layout_name}">\n'
+        f'      <style:page-layout-properties fo:page-width="{spec.width_pt:.1f}pt" '
+        f'fo:page-height="{spec.height_pt:.1f}pt"\n'
+        f'                                    style:print-orientation="{spec.orientation}"\n'
+        f'                                    fo:margin-top="0pt" fo:margin-bottom="0pt"\n'
+        f'                                    fo:margin-left="0pt" fo:margin-right="0pt"/>\n'
+        f'    </style:page-layout>'
+    )
 
 
 def _color_to_odf(color: Color) -> str:
@@ -121,4 +188,10 @@ def render_vector_path_odp(
     )
 
 
-__all__ = ["render_vector_path_odp"]
+__all__ = [
+    "OdpSlideLayoutSpec",
+    "compute_odp_page_orientation",
+    "build_odp_slide_layouts",
+    "build_odp_page_layout_xml",
+    "render_vector_path_odp",
+]

@@ -5,7 +5,14 @@ from __future__ import annotations
 from typing import List
 
 
-def build_presentation_xml(slide_rids: List[str], width_emu: int, height_emu: int) -> bytes:
+def build_presentation_xml(
+    slide_rids: List[str],
+    width_emu: int,
+    height_emu: int,
+    sld_sz_type: str = "custom",
+    notes_width_emu: int = 6858000,
+    notes_height_emu: int = 9144000,
+) -> bytes:
     """Generate ppt/presentation.xml content."""
     lines = [
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
@@ -24,8 +31,8 @@ def build_presentation_xml(slide_rids: List[str], width_emu: int, height_emu: in
 
     lines.extend([
         '  </p:sldIdLst>',
-        f'  <p:sldSz cx="{width_emu}" cy="{height_emu}" type="custom"/>',
-        '  <p:notesSz cx="6858000" cy="9144000"/>',
+        f'  <p:sldSz cx="{width_emu}" cy="{height_emu}" type="{sld_sz_type}"/>',
+        f'  <p:notesSz cx="{notes_width_emu}" cy="{notes_height_emu}"/>',
         '</p:presentation>',
     ])
     return "\n".join(lines).encode("utf-8")

@@ -475,3 +475,50 @@ def test_odp_emitter_end_to_end_with_vectors() -> None:
     root = ET.fromstring(content_xml)
     assert root.tag.endswith("document-content")
 
+
+def test_odp_dynamic_portrait_and_mixed_slide_orientations() -> None:
+    """Verify ODP emits explicit style:print-orientation and per-dimension master pages."""
+    p1_portrait = DocumentPage(
+        page_number=1,
+        width=612.0,
+        height=792.0,
+        blocks=[Paragraph(runs=[TextRun("Portrait Slide", "Helvetica", 18.0, Color.black())], bbox=BoundingBox(50, 50, 560, 100))],
+    )
+    p2_landscape = DocumentPage(
+        page_number=2,
+        width=960.0,
+        height=540.0,
+        blocks=[Paragraph(runs=[TextRun("Widescreen Slide", "Helvetica", 18.0, Color.black())], bbox=BoundingBox(50, 50, 900, 100))],
+    )
+    p3_portrait_again = DocumentPage(
+        page_number=3,
+        width=612.0,
+        height=792.0,
+        blocks=[Paragraph(runs=[TextRun("Portrait Again", "Helvetica", 18.0, Color.black())], bbox=BoundingBox(50, 50, 560, 100))],
+    )
+
+    odp_bytes = OdpEmitter().emit(DocumentIR(pages=[p1_portrait, p2_landscape, p3_portrait_again]))
+    pkg = ODFPackage.parse(odp_bytes)
+    styles_xml = pkg.get_part("styles.xml").content.decode("utf-8")
+    content_xml = pkg.get_part("content.xml").content.decode("utf-8")
+
+    # Verify both page layouts and explicit print orientations exist in styles.xml
+    assert 'style:name="PM1"' in styles_xml
+    assert 'fo:page-width="612.0pt" fo:page-height="792.0pt"' in styles_xml
+    assert 'style:print-orientation="portrait"' in styles_xml
+    assert 'style:name="PM2"' in styles_xml
+    assert 'fo:page-width="960.0pt" fo:page-height="540.0pt"' in styles_xml
+    assert 'style:print-orientation="landscape"' in styles_xml
+    assert 'style:name="Default" style:page-layout-name="PM1"' in styles_xml
+    assert 'style:name="MasterPage2" style:page-layout-name="PM2"' in styles_xml
+
+    # Verify pages reference their matching master pages (page 3 reuses Default)
+    assert 'draw:name="page1" draw:style-name="dp1" draw:master-page-name="Default"' in content_xml
+    assert 'draw:name="page2" draw:style-name="dp1" draw:master-page-name="MasterPage2"' in content_xml
+    assert 'draw:name="page3" draw:style-name="dp1" draw:master-page-name="Default"' in content_xml
+
+    # Both XML documents are well-formed
+    ET.fromstring(styles_xml)
+    ET.fromstring(content_xml)
+
+

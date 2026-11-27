@@ -635,3 +635,83 @@ def test_pptx_emitter_end_to_end_with_vectors() -> None:
     assert '<p:spTree>' in slide_xml
 
 
+def test_pptx_dynamic_slide_dimensions_portrait_square_widescreen_and_clamping() -> None:
+    """Verify dynamic <p:sldSz> computation for portrait, square, widescreen, 4:3, and oversized PDFs."""
+    from anyconvert.emitters.pptx import (
+        PPTX_MAX_SLIDE_EMU,
+        PPTX_MAX_SLIDE_PT,
+        PPTX_MIN_SLIDE_EMU,
+        classify_slide_orientation,
+        compute_slide_dimensions,
+        compute_slide_transform,
+    )
+
+    # 1. Portrait US Letter (612 x 792 pt) -> custom portrait <p:sldSz> with cy > cx
+    p_portrait = DocumentPage(
+        1,
+        612.0,
+        792.0,
+        blocks=[Paragraph(runs=[TextRun("Portrait", "Calibri", 14.0, Color.black())], bbox=BoundingBox(72, 72, 540, 120))],
+    )
+    dims_portrait = compute_slide_dimensions([p_portrait])
+    assert dims_portrait.orientation == "portrait"
+    assert dims_portrait.sld_sz_type == "custom"
+    assert dims_portrait.width_emu == 7772400
+    assert dims_portrait.height_emu == 10058400
+    assert dims_portrait.height_emu > dims_portrait.width_emu
+
+    pptx_portrait = PptxEmitter().emit(DocumentIR(pages=[p_portrait]))
+    pres_xml = OPCPackage.parse(pptx_portrait).get_part("ppt/presentation.xml").content.decode("utf-8")
+    assert '<p:sldSz cx="7772400" cy="10058400" type="custom"/>' in pres_xml
+
+    # 2. Widescreen 16:9 (960 x 540 pt) -> screen16x9
+    dims_wide = compute_slide_dimensions([DocumentPage(1, 960.0, 540.0)])
+    assert dims_wide.orientation == "landscape"
+    assert dims_wide.sld_sz_type == "screen16x9"
+    assert dims_wide.width_emu == 12192000
+    assert dims_wide.height_emu == 6858000
+
+    # 3. Standard 4:3 (720 x 540 pt) -> screen4x3
+    dims_4x3 = compute_slide_dimensions([DocumentPage(1, 720.0, 540.0)])
+    assert dims_4x3.orientation == "landscape"
+    assert dims_4x3.sld_sz_type == "screen4x3"
+
+    # 4. Square slide (600 x 600 pt) -> custom square
+    dims_sq = compute_slide_dimensions([DocumentPage(1, 600.0, 600.0)])
+    assert dims_sq.orientation == "square"
+    assert dims_sq.sld_sz_type == "custom"
+    assert dims_sq.width_emu == dims_sq.height_emu
+
+    # 5. Oversized architectural PDF (5000 x 7000 pt) uniformly clamped within 56 in while preserving aspect ratio
+    dims_huge = compute_slide_dimensions([DocumentPage(1, 5000.0, 7000.0)])
+    assert dims_huge.orientation == "portrait"
+    assert dims_huge.height_emu <= PPTX_MAX_SLIDE_EMU
+    assert dims_huge.width_emu >= PPTX_MIN_SLIDE_EMU
+    assert abs(dims_huge.aspect_ratio - (5000.0 / 7000.0)) < 1e-3
+    assert abs(dims_huge.height_pt - PPTX_MAX_SLIDE_PT) < 1e-3
+
+    # 6. Mixed portrait (page 1) + landscape (page 2) applies aspect-preserving centering transform to page 2
+    p_land = DocumentPage(
+        2,
+        792.0,
+        612.0,
+        blocks=[Paragraph(runs=[TextRun("Landscape Page", "Calibri", 14.0, Color.black())], bbox=BoundingBox(0, 0, 792, 612))],
+    )
+    xform_p1 = compute_slide_transform(p_portrait, dims_portrait)
+    xform_p2 = compute_slide_transform(p_land, dims_portrait)
+    assert xform_p1.is_identity
+    assert not xform_p2.is_identity
+    assert abs(xform_p2.scale - (612.0 / 792.0)) < 1e-4
+    mapped_p2 = xform_p2.map_bbox(BoundingBox(0, 0, 792.0, 612.0))
+    assert mapped_p2.x0 >= -1e-6 and mapped_p2.x1 <= dims_portrait.width_pt + 1e-3
+    assert mapped_p2.y0 > 0.0 and mapped_p2.y1 < dims_portrait.height_pt
+
+    mixed_pptx = PptxEmitter().emit(DocumentIR(pages=[p_portrait, p_land]))
+    pkg_mixed = OPCPackage.parse(mixed_pptx)
+    assert pkg_mixed.has_part("ppt/slides/slide1.xml")
+    assert pkg_mixed.has_part("ppt/slides/slide2.xml")
+    assert classify_slide_orientation(612.0, 792.0) == "portrait"
+
+
+
+

@@ -14,7 +14,12 @@ from anyconvert.emitters.base import (
     color_to_hex,
     xml_escape,
 )
-from anyconvert.emitters.odp.content import render_vector_path_odp
+from anyconvert.emitters.odp.content import (
+    OdpSlideLayoutSpec,
+    build_odp_page_layout_xml,
+    build_odp_slide_layouts,
+    render_vector_path_odp,
+)
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
     Alignment,
@@ -78,14 +83,18 @@ class OdpEmitter(BaseEmitter):
 
         pkg = ODFPackage(mimetype=MIMETYPE_ODP)
 
-        first_page = doc_ir.pages[0]
+        layouts, page_master_names = build_odp_slide_layouts(doc_ir.pages)
 
         # 1. Build content.xml with presentation slides
-        content_xml = self._build_content_xml(doc_ir=doc_ir, pkg=pkg)
+        content_xml = self._build_content_xml(
+            doc_ir=doc_ir,
+            pkg=pkg,
+            page_master_names=page_master_names,
+        )
         pkg.add_part("content.xml", content_xml, media_type=MEDIA_TYPE_TEXT_XML)
 
-        # 2. Build styles.xml (slide dimensions)
-        styles_xml = self._build_styles_xml(first_page=first_page)
+        # 2. Build styles.xml (dynamic slide dimensions and orientations)
+        styles_xml = self._build_styles_xml(layouts=layouts)
         pkg.add_part("styles.xml", styles_xml, media_type=MEDIA_TYPE_TEXT_XML)
 
         # 3. Build meta.xml
@@ -98,6 +107,7 @@ class OdpEmitter(BaseEmitter):
         self,
         doc_ir: DocumentIR,
         pkg: ODFPackage,
+        page_master_names: Optional[List[str]] = None,
     ) -> bytes:
         """Generate content.xml with automatic styles and presentation slides."""
         auto_styles: List[str] = []
@@ -185,8 +195,13 @@ class OdpEmitter(BaseEmitter):
                         )
                     )
 
+            master_name = (
+                page_master_names[page_idx]
+                if page_master_names and page_idx < len(page_master_names)
+                else "Default"
+            )
             slide_elements.append(
-                f'      <draw:page draw:name="page{page_num}" draw:style-name="dp1" draw:master-page-name="Default">\n'
+                f'      <draw:page draw:name="page{page_num}" draw:style-name="dp1" draw:master-page-name="{master_name}">\n'
                 + "\n".join(shapes_xml)
                 + "\n      </draw:page>"
             )
@@ -453,10 +468,13 @@ class OdpEmitter(BaseEmitter):
         ])
         return "\n".join(lines)
 
-    def _build_styles_xml(self, first_page: DocumentPage) -> bytes:
-        """Generate styles.xml declaring presentation slide dimensions."""
-        w_pt = f"{first_page.width:.1f}pt"
-        h_pt = f"{first_page.height:.1f}pt"
+    def _build_styles_xml(self, layouts: List[OdpSlideLayoutSpec]) -> bytes:
+        """Generate styles.xml declaring per-layout slide dimensions and print orientations."""
+        page_layouts_xml = "\n".join(build_odp_page_layout_xml(spec) for spec in layouts)
+        master_pages_xml = "\n".join(
+            f'    <style:master-page style:name="{spec.master_name}" style:page-layout-name="{spec.layout_name}"/>'
+            for spec in layouts
+        )
 
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
@@ -471,14 +489,10 @@ class OdpEmitter(BaseEmitter):
     <style:style style:name="Standard" style:family="paragraph"/>
   </office:styles>
   <office:automatic-styles>
-    <style:page-layout style:name="PM1">
-      <style:page-layout-properties fo:page-width="{w_pt}" fo:page-height="{h_pt}"
-                                    fo:margin-top="0pt" fo:margin-bottom="0pt"
-                                    fo:margin-left="0pt" fo:margin-right="0pt"/>
-    </style:page-layout>
+{page_layouts_xml}
   </office:automatic-styles>
   <office:master-styles>
-    <style:master-page style:name="Default" style:page-layout-name="PM1"/>
+{master_pages_xml}
   </office:master-styles>
 </office:document-styles>"""
         return xml.strip().encode("utf-8")

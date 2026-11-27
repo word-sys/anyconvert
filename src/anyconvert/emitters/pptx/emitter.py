@@ -17,6 +17,12 @@ from anyconvert.emitters.base import (
     xml_escape,
 )
 from anyconvert.emitters.pptx.shapes import render_vector_shape
+from anyconvert.emitters.pptx.slides import (
+    SlideDimensions,
+    SlideTransform,
+    compute_slide_dimensions,
+    compute_slide_transform,
+)
 from anyconvert.emitters.pptx.theme import (
     build_presentation_xml,
     build_slide_layout_xml,
@@ -126,10 +132,8 @@ class PptxEmitter(BaseEmitter):
         layout_part = pkg.get_part("ppt/slideLayouts/slideLayout1.xml")
         layout_part.add_relationship(RT_SLIDEMASTER, "../slideMasters/slideMaster1.xml", rel_id="rIdMaster1")
 
-        # 3. Process slides for each DocumentPage
-        first_page = doc_ir.pages[0]
-        pres_width_emu = pt_to_emu(first_page.width)
-        pres_height_emu = pt_to_emu(first_page.height)
+        # 3. Process slides for each DocumentPage using dynamic slide dimensions
+        slide_dims: SlideDimensions = compute_slide_dimensions(doc_ir.pages)
 
         slide_rids: List[str] = []
         global_image_counter = [1]
@@ -140,11 +144,14 @@ class PptxEmitter(BaseEmitter):
             slide_rid = f"rIdSlide{slide_num}"
             slide_rids.append(slide_rid)
 
+            transform = compute_slide_transform(page, slide_dims)
             slide_xml, slide_image_rels = self._build_slide_xml(
                 page=page,
                 pkg=pkg,
                 slide_num=slide_num,
                 global_image_counter=global_image_counter,
+                slide_dims=slide_dims,
+                transform=transform,
             )
 
             slide_part = pkg.add_part(
@@ -163,7 +170,14 @@ class PptxEmitter(BaseEmitter):
                 slide_part.add_relationship(RT_IMAGE, target_rel, rel_id=r_id)
 
         # 4. Generate ppt/presentation.xml and relationships
-        pres_xml = build_presentation_xml(slide_rids, pres_width_emu, pres_height_emu)
+        pres_xml = build_presentation_xml(
+            slide_rids,
+            slide_dims.width_emu,
+            slide_dims.height_emu,
+            sld_sz_type=slide_dims.sld_sz_type,
+            notes_width_emu=slide_dims.notes_width_emu,
+            notes_height_emu=slide_dims.notes_height_emu,
+        )
         pres_part = pkg.add_part(
             "ppt/presentation.xml",
             pres_xml,
@@ -202,26 +216,31 @@ class PptxEmitter(BaseEmitter):
         pkg: OPCPackage,
         slide_num: int,
         global_image_counter: List[int],
+        slide_dims: Optional[SlideDimensions] = None,
+        transform: Optional[SlideTransform] = None,
     ) -> tuple[str, Dict[str, str]]:
         """Generate XML for a single slide (<p:sld>)."""
         shape_elements: List[str] = []
         slide_image_rels: Dict[str, str] = {}
         shape_id = 2  # 1 is reserved for group
+        xform = transform if transform is not None else SlideTransform()
+        slide_w = slide_dims.width_pt if slide_dims is not None else page.width
+        slide_h = slide_dims.height_pt if slide_dims is not None else page.height
 
         # If header or footer present, render them
         if page.header:
             for p in page.header.content:
-                shape_xml = self._render_paragraph_shape(p, shape_id=shape_id)
+                shape_xml = self._render_paragraph_shape(p, shape_id=shape_id, transform=xform)
                 shape_elements.append(shape_xml)
                 shape_id += 1
 
         for block in page.blocks:
             if isinstance(block, Paragraph):
-                shape_xml = self._render_paragraph_shape(block, shape_id=shape_id)
+                shape_xml = self._render_paragraph_shape(block, shape_id=shape_id, transform=xform)
                 shape_elements.append(shape_xml)
                 shape_id += 1
             elif isinstance(block, Table):
-                tbl_xml = self._render_table_shape(block, shape_id=shape_id)
+                tbl_xml = self._render_table_shape(block, shape_id=shape_id, transform=xform)
                 shape_elements.append(tbl_xml)
                 shape_id += 1
             elif isinstance(block, ImageBlock):
@@ -232,15 +251,35 @@ class PptxEmitter(BaseEmitter):
                     shape_id=shape_id,
                     slide_image_rels=slide_image_rels,
                     global_image_counter=global_image_counter,
+                    transform=xform,
                 )
                 shape_elements.append(pic_xml)
                 shape_id += 1
             elif isinstance(block, VectorBlock):
+                vec_to_render = (
+                    block
+                    if xform.is_identity
+                    else VectorBlock(
+                        svg_path=block.svg_path,
+                        bbox=xform.map_bbox(block.bbox),
+                        fill_color=block.fill_color,
+                        stroke_color=block.stroke_color,
+                        stroke_width=max(0.25, xform.map_pt(block.stroke_width)),
+                        fill_rule=block.fill_rule,
+                        fill_alpha=block.fill_alpha,
+                        stroke_alpha=block.stroke_alpha,
+                        line_cap=block.line_cap,
+                        line_join=block.line_join,
+                        miter_limit=block.miter_limit,
+                        dash_array=list(block.dash_array),
+                        dash_phase=block.dash_phase,
+                    )
+                )
                 vec_xml = self._render_vector_shape(
-                    vec=block,
+                    vec=vec_to_render,
                     shape_id=shape_id,
-                    slide_width=page.width,
-                    slide_height=page.height,
+                    slide_width=slide_w,
+                    slide_height=slide_h,
                 )
                 if vec_xml:
                     shape_elements.append(vec_xml)
@@ -248,7 +287,7 @@ class PptxEmitter(BaseEmitter):
 
         if page.footer:
             for p in page.footer.content:
-                shape_xml = self._render_paragraph_shape(p, shape_id=shape_id)
+                shape_xml = self._render_paragraph_shape(p, shape_id=shape_id, transform=xform)
                 shape_elements.append(shape_xml)
                 shape_id += 1
 
@@ -289,9 +328,15 @@ class PptxEmitter(BaseEmitter):
         """Render a VectorBlock into a PresentationML shape (<p:sp>)."""
         return render_vector_shape(vec, shape_id, slide_width, slide_height)
 
-    def _render_paragraph_shape(self, p: Paragraph, shape_id: int) -> str:
+    def _render_paragraph_shape(
+        self,
+        p: Paragraph,
+        shape_id: int,
+        transform: Optional[SlideTransform] = None,
+    ) -> str:
         """Render a Paragraph into a DrawingML text shape (<p:sp>)."""
-        bbox = p.bbox or BoundingBox(72, 72, 400, 100)
+        xform = transform if transform is not None else SlideTransform()
+        bbox = xform.map_bbox(p.bbox or BoundingBox(72, 72, 400, 100))
         x_emu = pt_to_emu(bbox.x0)
         y_emu = pt_to_emu(bbox.y0)
         w_emu = pt_to_emu(bbox.width)
@@ -301,7 +346,7 @@ class PptxEmitter(BaseEmitter):
 
         runs_xml: List[str] = []
         for run in p.runs:
-            sz_val = pt_to_hundredth_pt(run.font_size)
+            sz_val = pt_to_hundredth_pt(max(1.0, xform.map_pt(run.font_size)))
             b_val = ' b="1"' if run.is_bold else ""
             i_val = ' i="1"' if run.is_italic else ""
             u_val = ' u="sng"' if run.is_underline else ""
@@ -356,6 +401,7 @@ class PptxEmitter(BaseEmitter):
         shape_id: int,
         slide_image_rels: Dict[str, str],
         global_image_counter: List[int],
+        transform: Optional[SlideTransform] = None,
     ) -> str:
         """Embed raster image and render PresentationML picture shape (<p:pic>)."""
         img_idx = global_image_counter[0]
@@ -391,10 +437,12 @@ class PptxEmitter(BaseEmitter):
         rel_id = f"rIdImg{shape_id}"
         slide_image_rels[rel_target] = rel_id
 
-        x_emu = pt_to_emu(img.bbox.x0)
-        y_emu = pt_to_emu(img.bbox.y0)
-        w_emu = pt_to_emu(img.bbox.width)
-        h_emu = pt_to_emu(img.bbox.height)
+        xform = transform if transform is not None else SlideTransform()
+        mapped_bbox = xform.map_bbox(img.bbox)
+        x_emu = pt_to_emu(mapped_bbox.x0)
+        y_emu = pt_to_emu(mapped_bbox.y0)
+        w_emu = pt_to_emu(mapped_bbox.width)
+        h_emu = pt_to_emu(mapped_bbox.height)
         alt_str = xml_escape(img.alt_text or f"Picture {shape_id}")
 
         return f"""      <p:pic>
@@ -416,9 +464,15 @@ class PptxEmitter(BaseEmitter):
         </p:spPr>
       </p:pic>"""
 
-    def _render_table_shape(self, table: Table, shape_id: int) -> str:
+    def _render_table_shape(
+        self,
+        table: Table,
+        shape_id: int,
+        transform: Optional[SlideTransform] = None,
+    ) -> str:
         """Render a Table into a DrawingML graphic frame with table element."""
-        bbox = table.bbox or BoundingBox(72, 100, 450, 200)
+        xform = transform if transform is not None else SlideTransform()
+        bbox = xform.map_bbox(table.bbox or BoundingBox(72, 100, 450, 200))
         x_emu = pt_to_emu(bbox.x0)
         y_emu = pt_to_emu(bbox.y0)
         w_emu = pt_to_emu(bbox.width)
@@ -443,11 +497,11 @@ class PptxEmitter(BaseEmitter):
         ]
 
         for cw in table.col_widths:
-            lines.append(f'                <a:gridCol w="{pt_to_emu(cw)}"/>')
+            lines.append(f'                <a:gridCol w="{pt_to_emu(xform.map_pt(cw))}"/>')
         lines.append('              </a:tblGrid>')
 
         for row in table.rows:
-            r_h_emu = pt_to_emu(row.height) if row.height > 0 else 300000
+            r_h_emu = pt_to_emu(xform.map_pt(row.height)) if row.height > 0 else 300000
             lines.append(f'              <a:tr h="{r_h_emu}">')
             for cell in row.cells:
                 span_attrs: List[str] = []
