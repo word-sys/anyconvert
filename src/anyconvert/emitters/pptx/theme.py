@@ -33,18 +33,36 @@ def build_presentation_xml(
         '  </p:sldIdLst>',
         f'  <p:sldSz cx="{width_emu}" cy="{height_emu}" type="{sld_sz_type}"/>',
         f'  <p:notesSz cx="{notes_width_emu}" cy="{notes_height_emu}"/>',
+        '  <p:defaultTextStyle>',
+        '    <a:defPPr>',
+        '      <a:defRPr lang="en-US"/>',
+        '    </a:defPPr>',
+        '    <a:lvl1pPr marL="0" algn="l" defTabSz="914400" rtl="0" eaLnBrk="1" latinLnBrk="0" hangingPunct="1">',
+        '      <a:defRPr sz="1400" kern="1200">',
+        '        <a:solidFill><a:schemeClr val="tx1"/></a:solidFill>',
+        '        <a:latin typeface="+mn-lt"/>',
+        '        <a:ea typeface="+mn-ea"/>',
+        '        <a:cs typeface="+mn-cs"/>',
+        '      </a:defRPr>',
+        '    </a:lvl1pPr>',
+        '  </p:defaultTextStyle>',
         '</p:presentation>',
     ])
     return "\n".join(lines).encode("utf-8")
 
 
 def build_slide_master_xml() -> bytes:
-    """Generate ppt/slideMasters/slideMaster1.xml content."""
+    """Generate clean placeholder-free ppt/slideMasters/slideMaster1.xml content."""
     xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
              xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
              xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
   <p:cSld>
+    <p:bg>
+      <p:bgRef idx="1001">
+        <a:schemeClr val="bg1"/>
+      </p:bgRef>
+    </p:bg>
     <p:spTree>
       <p:nvGrpSpPr>
         <p:cNvPr id="1" name=""/>
@@ -67,17 +85,46 @@ def build_slide_master_xml() -> bytes:
   <p:sldLayoutIdLst>
     <p:sldLayoutId id="2147483649" r:id="rIdLayout1"/>
   </p:sldLayoutIdLst>
+  <p:txStyles>
+    <p:titleStyle>
+      <a:lvl1pPr algn="l" defTabSz="914400" rtl="0" eaLnBrk="1" latinLnBrk="0" hangingPunct="1">
+        <a:defRPr sz="2400" kern="1200">
+          <a:solidFill><a:schemeClr val="tx1"/></a:solidFill>
+          <a:latin typeface="+mj-lt"/>
+        </a:defRPr>
+      </a:lvl1pPr>
+    </p:titleStyle>
+    <p:bodyStyle>
+      <a:lvl1pPr marL="0" indent="0" algn="l" defTabSz="914400" rtl="0" eaLnBrk="1" latinLnBrk="0" hangingPunct="1">
+        <a:defRPr sz="1400" kern="1200">
+          <a:solidFill><a:schemeClr val="tx1"/></a:solidFill>
+          <a:latin typeface="+mn-lt"/>
+        </a:defRPr>
+      </a:lvl1pPr>
+    </p:bodyStyle>
+    <p:otherStyle>
+      <a:defPPr>
+        <a:defRPr lang="en-US"/>
+      </a:defPPr>
+      <a:lvl1pPr marL="0" algn="l" defTabSz="914400" rtl="0" eaLnBrk="1" latinLnBrk="0" hangingPunct="1">
+        <a:defRPr sz="1400" kern="1200">
+          <a:solidFill><a:schemeClr val="tx1"/></a:solidFill>
+          <a:latin typeface="+mn-lt"/>
+        </a:defRPr>
+      </a:lvl1pPr>
+    </p:otherStyle>
+  </p:txStyles>
 </p:sldMaster>"""
     return xml.strip().encode("utf-8")
 
 
 def build_slide_layout_xml() -> bytes:
-    """Generate ppt/slideLayouts/slideLayout1.xml (blank layout) content."""
+    """Generate clean placeholder-free ppt/slideLayouts/slideLayout1.xml (Blank layout)."""
     xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
              xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
              xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
-             type="blank" preserve="1">
+             type="blank" preserve="1" showMasterSp="0">
   <p:cSld name="Blank">
     <p:spTree>
       <p:nvGrpSpPr>
@@ -99,6 +146,51 @@ def build_slide_layout_xml() -> bytes:
     <a:masterClrMapping/>
   </p:clrMapOvr>
 </p:sldLayout>"""
+    return xml.strip().encode("utf-8")
+
+
+def build_pres_props_xml() -> bytes:
+    """Generate ppt/presProps.xml content."""
+    xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentationPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+                  xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>"""
+    return xml.strip().encode("utf-8")
+
+
+def build_view_props_xml() -> bytes:
+    """Generate ppt/viewProps.xml content defaulting to normal slide view."""
+    xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:viewPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+          xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:normalViewPr>
+    <p:restoredLeft sz="15620"/>
+    <p:restoredTop sz="94660"/>
+  </p:normalViewPr>
+  <p:slideViewPr>
+    <p:cSldViewPr>
+      <p:cViewPr varScale="1">
+        <p:scale><a:sx n="100" d="100"/><a:sy n="100" d="100"/></p:scale>
+        <p:origin x="0" y="0"/>
+      </p:cViewPr>
+    </p:cSldViewPr>
+  </p:slideViewPr>
+  <p:notesTextViewPr>
+    <p:cViewPr>
+      <p:scale><a:sx n="100" d="100"/><a:sy n="100" d="100"/></p:scale>
+      <p:origin x="0" y="0"/>
+    </p:cViewPr>
+  </p:notesTextViewPr>
+</p:viewPr>"""
+    return xml.strip().encode("utf-8")
+
+
+def build_table_styles_xml() -> bytes:
+    """Generate ppt/tableStyles.xml content."""
+    xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<a:tblStyleLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+               def="{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"/>"""
     return xml.strip().encode("utf-8")
 
 
@@ -149,8 +241,11 @@ def build_theme_xml() -> bytes:
 
 
 __all__ = [
+    "build_pres_props_xml",
     "build_presentation_xml",
     "build_slide_master_xml",
     "build_slide_layout_xml",
+    "build_table_styles_xml",
     "build_theme_xml",
+    "build_view_props_xml",
 ]

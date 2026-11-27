@@ -529,3 +529,82 @@ def test_epub_container_validation_errors() -> None:
         zf.writestr(zi, MIMETYPE_EPUB.encode("ascii"))
     with pytest.raises(PackagingError):
         EPUBPackage.parse(no_container.getvalue())
+
+
+def test_opc_validate_relationships_and_presentation_part_types() -> None:
+    """Verify OPCPackage.validate_relationships catches dangling internal links and allows external links."""
+    from anyconvert.packaging.opc import (
+        CT_PRESENTATION_DOCUMENT,
+        CT_PRESENTATION_PRESPROPS,
+        CT_PRESENTATION_TABLESTYLES,
+        CT_PRESENTATION_VIEWPROPS,
+        RT_HYPERLINK,
+        RT_OFFICE_DOCUMENT,
+        RT_PRESPROPS,
+        RT_TABLESTYLES,
+        RT_VIEWPROPS,
+    )
+
+    pkg = OPCPackage()
+    pres = pkg.add_part("ppt/presentation.xml", "<p:presentation/>", content_type=CT_PRESENTATION_DOCUMENT)
+    pkg.add_part("ppt/presProps.xml", "<p:presentationPr/>", content_type=CT_PRESENTATION_PRESPROPS)
+    pkg.add_part("ppt/viewProps.xml", "<p:viewPr/>", content_type=CT_PRESENTATION_VIEWPROPS)
+    pkg.add_part("ppt/tableStyles.xml", "<a:tblStyleLst/>", content_type=CT_PRESENTATION_TABLESTYLES)
+
+    pkg.add_package_relationship(RT_OFFICE_DOCUMENT, "ppt/presentation.xml")
+    pres.add_relationship(RT_PRESPROPS, "presProps.xml")
+    pres.add_relationship(RT_VIEWPROPS, "viewProps.xml")
+    pres.add_relationship(RT_TABLESTYLES, "tableStyles.xml")
+    pres.add_relationship(RT_HYPERLINK, "https://example.org", target_mode="External")
+
+    pkg.validate_relationships()
+
+    # Dangling part relationship raises PackagingError
+    pres.add_relationship(RT_PRESPROPS, "missing_part.xml")
+    with pytest.raises(PackagingError, match="Dangling relationship"):
+        pkg.validate_relationships()
+
+
+
+def test_opc_validate_relationships_and_presentation_constants() -> None:
+    """Verify OPCPackage.validate_relationships() detects dangling internal targets."""
+    from anyconvert.packaging import (
+        CT_PRESENTATION_DOCUMENT,
+        CT_PRESENTATION_PRESPROPS,
+        CT_PRESENTATION_SLIDE,
+        CT_PRESENTATION_TABLESTYLES,
+        CT_PRESENTATION_VIEWPROPS,
+        RT_OFFICE_DOCUMENT,
+        RT_PRESPROPS,
+        RT_SLIDE,
+        RT_TABLESTYLES,
+        RT_VIEWPROPS,
+    )
+
+    pkg = OPCPackage()
+    pres = pkg.add_part("ppt/presentation.xml", "<p:presentation/>", content_type=CT_PRESENTATION_DOCUMENT)
+    pkg.add_part("ppt/slides/slide1.xml", "<p:sld/>", content_type=CT_PRESENTATION_SLIDE)
+    pkg.add_part("ppt/presProps.xml", "<p:presentationPr/>", content_type=CT_PRESENTATION_PRESPROPS)
+    pkg.add_part("ppt/viewProps.xml", "<p:viewPr/>", content_type=CT_PRESENTATION_VIEWPROPS)
+    pkg.add_part("ppt/tableStyles.xml", "<a:tblStyleLst/>", content_type=CT_PRESENTATION_TABLESTYLES)
+
+    pkg.add_package_relationship(RT_OFFICE_DOCUMENT, "ppt/presentation.xml")
+    pres.add_relationship(RT_SLIDE, "slides/slide1.xml#anchor", rel_id="rId1")
+    pres.add_relationship(RT_PRESPROPS, "presProps.xml", rel_id="rId2")
+    pres.add_relationship(RT_VIEWPROPS, "viewProps.xml", rel_id="rId3")
+    pres.add_relationship(RT_TABLESTYLES, "tableStyles.xml", rel_id="rId4")
+    pres.add_relationship("http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink", "https://example.org", target_mode="External", rel_id="rId5")
+
+    pkg.validate_relationships()
+
+    # Dangling part relationship raises PackagingError
+    pres.add_relationship(RT_SLIDE, "slides/missing_slide.xml", rel_id="rIdBad")
+    with pytest.raises(PackagingError, match="Dangling relationship"):
+        pkg.validate_relationships()
+
+    # Dangling root package relationship raises PackagingError
+    bad_root_pkg = OPCPackage()
+    bad_root_pkg.add_package_relationship(RT_OFFICE_DOCUMENT, "ppt/does_not_exist.xml")
+    with pytest.raises(PackagingError, match="Dangling package relationship"):
+        bad_root_pkg.validate_relationships()
+

@@ -72,6 +72,15 @@ CT_PRESENTATION_SLIDELAYOUT = (
 CT_PRESENTATION_SLIDEMASTER = (
     "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"
 )
+CT_PRESENTATION_PRESPROPS = (
+    "application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"
+)
+CT_PRESENTATION_VIEWPROPS = (
+    "application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml"
+)
+CT_PRESENTATION_TABLESTYLES = (
+    "application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"
+)
 
 CT_DRAWINGML_THEME = "application/vnd.openxmlformats-officedocument.theme+xml"
 CT_CORE_PROPERTIES = (
@@ -117,6 +126,15 @@ RT_SLIDELAYOUT = (
 )
 RT_SLIDEMASTER = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster"
+)
+RT_PRESPROPS = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/presProps"
+)
+RT_VIEWPROPS = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/viewProps"
+)
+RT_TABLESTYLES = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/tableStyles"
 )
 RT_THEME = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
@@ -585,6 +603,34 @@ class OPCPackage:
 
             return pkg
 
+    def validate_relationships(self) -> None:
+        """Verify that every Internal relationship resolves to an existing part in this package."""
+        for rel in self.package_relationships.values():
+            if rel.target_mode != "Internal":
+                continue
+            target_no_frag = rel.target.split("#", 1)[0]
+            norm_target = posixpath.normpath(target_no_frag.replace("\\", "/")).lstrip("/")
+            if norm_target.startswith("..") or norm_target not in self.parts:
+                raise PackagingError(
+                    f"Dangling package relationship {rel.rel_id!r} -> {rel.target!r}"
+                )
+
+        for part in self.parts.values():
+            base_dir = posixpath.dirname(part.part_name)
+            for rel in part.relationships.values():
+                if rel.target_mode != "Internal":
+                    continue
+                target_no_frag = rel.target.split("#", 1)[0].replace("\\", "/")
+                if target_no_frag.startswith("/"):
+                    joined = target_no_frag.lstrip("/")
+                else:
+                    joined = posixpath.join(base_dir, target_no_frag) if base_dir else target_no_frag
+                norm_target = posixpath.normpath(joined)
+                if norm_target.startswith("..") or norm_target not in self.parts:
+                    raise PackagingError(
+                        f"Dangling relationship {rel.rel_id!r} in {part.part_name!r} -> {rel.target!r} (resolved {norm_target!r})"
+                    )
+
     @staticmethod
     def _parse_content_types(xml_data: bytes) -> Tuple[Dict[str, str], Dict[str, str]]:
         """Parse Defaults and Overrides from [Content_Types].xml."""
@@ -663,6 +709,9 @@ __all__ = [
     "CT_PRESENTATION_SLIDE",
     "CT_PRESENTATION_SLIDELAYOUT",
     "CT_PRESENTATION_SLIDEMASTER",
+    "CT_PRESENTATION_PRESPROPS",
+    "CT_PRESENTATION_VIEWPROPS",
+    "CT_PRESENTATION_TABLESTYLES",
     "CT_DRAWINGML_THEME",
     "CT_CORE_PROPERTIES",
     "CT_EXTENDED_PROPERTIES",
@@ -678,6 +727,9 @@ __all__ = [
     "RT_SLIDE",
     "RT_SLIDELAYOUT",
     "RT_SLIDEMASTER",
+    "RT_PRESPROPS",
+    "RT_VIEWPROPS",
+    "RT_TABLESTYLES",
     "RT_THEME",
     "RT_CORE_PROPERTIES",
     "RT_EXTENDED_PROPERTIES",

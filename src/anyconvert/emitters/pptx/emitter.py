@@ -24,10 +24,13 @@ from anyconvert.emitters.pptx.slides import (
     compute_slide_transform,
 )
 from anyconvert.emitters.pptx.theme import (
+    build_pres_props_xml,
     build_presentation_xml,
     build_slide_layout_xml,
     build_slide_master_xml,
+    build_table_styles_xml,
     build_theme_xml,
+    build_view_props_xml,
 )
 from anyconvert.exceptions import SerializationError
 from anyconvert.ir.model import (
@@ -51,9 +54,12 @@ from anyconvert.packaging.opc import (
     CT_JPEG,
     CT_PNG,
     CT_PRESENTATION_DOCUMENT,
+    CT_PRESENTATION_PRESPROPS,
     CT_PRESENTATION_SLIDE,
     CT_PRESENTATION_SLIDELAYOUT,
     CT_PRESENTATION_SLIDEMASTER,
+    CT_PRESENTATION_TABLESTYLES,
+    CT_PRESENTATION_VIEWPROPS,
     CT_SVG,
     CT_TIFF,
     CT_WEBP,
@@ -63,19 +69,22 @@ from anyconvert.packaging.opc import (
     RT_EXTENDED_PROPERTIES,
     RT_IMAGE,
     RT_OFFICE_DOCUMENT,
+    RT_PRESPROPS,
     RT_SLIDE,
     RT_SLIDELAYOUT,
     RT_SLIDEMASTER,
+    RT_TABLESTYLES,
     RT_THEME,
+    RT_VIEWPROPS,
 )
 from anyconvert.pdf.filters.jpx import jpx_to_rgba
 from anyconvert.utils.png import encode_rgba_png
 
 
 _ALIGN_MAP: Dict[Alignment, str] = {
-    Alignment.LEFT: "left",
+    Alignment.LEFT: "l",
     Alignment.CENTER: "ctr",
-    Alignment.RIGHT: "right",
+    Alignment.RIGHT: "r",
     Alignment.JUSTIFIED: "just",
 }
 
@@ -196,6 +205,26 @@ class PptxEmitter(BaseEmitter):
                 rel_id=s_rid,
             )
 
+        pkg.add_part(
+            "ppt/presProps.xml",
+            build_pres_props_xml(),
+            content_type=CT_PRESENTATION_PRESPROPS,
+        )
+        pkg.add_part(
+            "ppt/viewProps.xml",
+            build_view_props_xml(),
+            content_type=CT_PRESENTATION_VIEWPROPS,
+        )
+        pkg.add_part(
+            "ppt/tableStyles.xml",
+            build_table_styles_xml(),
+            content_type=CT_PRESENTATION_TABLESTYLES,
+        )
+        pres_part.add_relationship(RT_PRESPROPS, "presProps.xml", rel_id="rIdPresProps")
+        pres_part.add_relationship(RT_VIEWPROPS, "viewProps.xml", rel_id="rIdViewProps")
+        pres_part.add_relationship(RT_THEME, "theme/theme1.xml", rel_id="rIdTheme1")
+        pres_part.add_relationship(RT_TABLESTYLES, "tableStyles.xml", rel_id="rIdTableStyles")
+
         # 5. Core and App properties
         pkg.add_part(
             "docProps/core.xml",
@@ -208,6 +237,7 @@ class PptxEmitter(BaseEmitter):
             content_type=CT_EXTENDED_PROPERTIES,
         )
 
+        pkg.validate_relationships()
         return pkg.to_bytes()
 
     def _build_slide_xml(
@@ -295,7 +325,8 @@ class PptxEmitter(BaseEmitter):
         xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
        xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-       xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+       xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       showMasterSp="0">
   <p:cSld>
     <p:spTree>
       <p:nvGrpSpPr>
@@ -342,7 +373,7 @@ class PptxEmitter(BaseEmitter):
         w_emu = pt_to_emu(bbox.width)
         h_emu = pt_to_emu(bbox.height)
 
-        algn_val = _ALIGN_MAP.get(p.alignment, "left")
+        algn_val = _ALIGN_MAP.get(p.alignment, "l")
 
         runs_xml: List[str] = []
         for run in p.runs:
@@ -382,7 +413,7 @@ class PptxEmitter(BaseEmitter):
           <a:noFill/>
         </p:spPr>
         <p:txBody>
-          <a:bodyPr wrap="square" rtlCol="0">
+          <a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" rtlCol="0">
             <a:spAutoFit/>
           </a:bodyPr>
           <a:lstStyle/>

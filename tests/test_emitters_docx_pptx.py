@@ -713,5 +713,135 @@ def test_pptx_dynamic_slide_dimensions_portrait_square_widescreen_and_clamping()
     assert classify_slide_orientation(612.0, 792.0) == "portrait"
 
 
+def test_pptx_clean_master_slide_and_blank_layout_synthesis() -> None:
+    """Verify placeholder-free slideMaster1/slideLayout1, presentation props, and relationship integrity."""
+    import xml.etree.ElementTree as ET
+
+    p = Paragraph(
+        runs=[TextRun("Absolute Box", "Calibri", 16.0, Color.black())],
+        bbox=BoundingBox(40.0, 60.0, 320.0, 100.0),
+        alignment=Alignment.LEFT,
+    )
+    p_right = Paragraph(
+        runs=[TextRun("Right Aligned", "Calibri", 14.0, Color.black())],
+        bbox=BoundingBox(350.0, 60.0, 600.0, 100.0),
+        alignment=Alignment.RIGHT,
+    )
+    doc = DocumentIR(pages=[DocumentPage(1, 720.0, 540.0, blocks=[p, p_right])])
+    pptx_bytes = PptxEmitter().emit(doc)
+
+    pkg = OPCPackage.parse(pptx_bytes)
+    pkg.validate_relationships()
+
+    # Required PresentationML support parts exist and are well-formed XML
+    for part_name in (
+        "ppt/presentation.xml",
+        "ppt/slideMasters/slideMaster1.xml",
+        "ppt/slideLayouts/slideLayout1.xml",
+        "ppt/theme/theme1.xml",
+        "ppt/presProps.xml",
+        "ppt/viewProps.xml",
+        "ppt/tableStyles.xml",
+        "ppt/slides/slide1.xml",
+    ):
+        assert pkg.has_part(part_name)
+        ET.fromstring(pkg.get_part(part_name).content)
+
+    master_xml = pkg.get_part("ppt/slideMasters/slideMaster1.xml").content.decode("utf-8")
+    layout_xml = pkg.get_part("ppt/slideLayouts/slideLayout1.xml").content.decode("utf-8")
+    pres_xml = pkg.get_part("ppt/presentation.xml").content.decode("utf-8")
+    slide_xml = pkg.get_part("ppt/slides/slide1.xml").content.decode("utf-8")
+
+    # Zero placeholder (<p:ph>) or phantom <p:sp> boxes in master or blank layout
+    assert "<p:ph" not in master_xml
+    assert "<p:sp>" not in master_xml
+    assert "<p:bg>" in master_xml
+    assert "<p:txStyles>" in master_xml
+
+    assert 'type="blank"' in layout_xml
+    assert 'showMasterSp="0"' in layout_xml
+    assert "<p:ph" not in layout_xml
+    assert "<p:sp>" not in layout_xml
+
+    # Presentation has defaultTextStyle and slides suppress master shapes + use valid OOXML algn="l"/"r"
+    assert "<p:defaultTextStyle>" in pres_xml
+    assert 'showMasterSp="0"' in slide_xml
+    assert 'algn="l"' in slide_xml
+    assert 'algn="r"' in slide_xml
+    assert 'algn="left"' not in slide_xml
+    assert 'algn="right"' not in slide_xml
+    assert 'lIns="0" tIns="0" rIns="0" bIns="0"' in slide_xml
+
+
+
+def test_pptx_master_slide_blank_layout_and_ooxml_parts_integrity() -> None:
+    """Verify clean placeholder-free slideMaster1/slideLayout1 synthesis and PPTX OPC integrity."""
+    import xml.etree.ElementTree as ET
+
+    p_left = Paragraph(
+        runs=[TextRun("Left Headline", "Calibri", 20.0, Color.black(), is_bold=True)],
+        bbox=BoundingBox(50.0, 50.0, 400.0, 90.0),
+        alignment=Alignment.LEFT,
+    )
+    p_right = Paragraph(
+        runs=[TextRun("Right Footer Note", "Calibri", 12.0, Color.black())],
+        bbox=BoundingBox(400.0, 480.0, 680.0, 510.0),
+        alignment=Alignment.RIGHT,
+    )
+    page = DocumentPage(1, 720.0, 540.0, blocks=[p_left, p_right])
+    pptx_bytes = PptxEmitter().emit(DocumentIR(pages=[page]))
+
+    pkg = OPCPackage.parse(pptx_bytes)
+    pkg.validate_relationships()
+
+    # Standard PresentationML supporting parts must be present and linked
+    for expected_part in (
+        "ppt/presentation.xml",
+        "ppt/presProps.xml",
+        "ppt/viewProps.xml",
+        "ppt/tableStyles.xml",
+        "ppt/slideMasters/slideMaster1.xml",
+        "ppt/slideLayouts/slideLayout1.xml",
+        "ppt/theme/theme1.xml",
+        "ppt/slides/slide1.xml",
+    ):
+        assert pkg.has_part(expected_part), f"Missing PPTX part: {expected_part}"
+
+    # Verify slideMaster1.xml has clean bg, txStyles, and ZERO placeholder (<p:ph>) shapes
+    master_xml = pkg.get_part("ppt/slideMasters/slideMaster1.xml").content.decode("utf-8")
+    assert "<p:ph" not in master_xml
+    assert "<p:sp>" not in master_xml
+    assert "<p:bg>" in master_xml
+    assert "<p:txStyles>" in master_xml
+    assert "<p:titleStyle>" in master_xml
+    assert "<p:bodyStyle>" in master_xml
+    assert "<p:otherStyle>" in master_xml
+    ET.fromstring(master_xml)
+
+    # Verify slideLayout1.xml is blank, preserves layout, hides master shapes, and has zero placeholders
+    layout_xml = pkg.get_part("ppt/slideLayouts/slideLayout1.xml").content.decode("utf-8")
+    assert 'type="blank"' in layout_xml
+    assert 'preserve="1"' in layout_xml
+    assert 'showMasterSp="0"' in layout_xml
+    assert "<p:ph" not in layout_xml
+    assert "<p:sp>" not in layout_xml
+    ET.fromstring(layout_xml)
+
+    # Verify slide1.xml uses valid ISO/IEC 29500-1 DrawingML alignments ('l' and 'r') and showMasterSp="0"
+    slide_xml = pkg.get_part("ppt/slides/slide1.xml").content.decode("utf-8")
+    assert 'showMasterSp="0"' in slide_xml
+    assert 'algn="l"' in slide_xml
+    assert 'algn="r"' in slide_xml
+    assert 'algn="left"' not in slide_xml
+    assert 'algn="right"' not in slide_xml
+    assert 'lIns="0" tIns="0" rIns="0" bIns="0"' in slide_xml
+
+    # Verify presentation.xml contains <p:defaultTextStyle>
+    pres_xml = pkg.get_part("ppt/presentation.xml").content.decode("utf-8")
+    assert "<p:defaultTextStyle>" in pres_xml
+    ET.fromstring(pres_xml)
+
+
+
 
 
